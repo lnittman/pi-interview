@@ -6,6 +6,8 @@
  */
 
 import type { TurnContext, QuizConfig } from "../core/types.js";
+import type { ProjectSnapshot } from "../core/project-context.js";
+import { formatProjectContext } from "../core/project-context.js";
 
 function truncate(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
@@ -20,6 +22,7 @@ export interface QuizPromptContext {
   touchedFiles: string[];
   unresolvedQuestions: string[];
   abortContextNote?: string;
+  projectContext?: string;
   maxQuestions: number;
   maxOptions: number;
   customInstruction: string;
@@ -27,7 +30,8 @@ export interface QuizPromptContext {
 
 export function buildQuizPromptContext(
   turn: TurnContext,
-  config: QuizConfig
+  config: QuizConfig,
+  project?: ProjectSnapshot
 ): QuizPromptContext {
   return {
     assistantText: truncate(turn.assistantText, 50_000),
@@ -41,6 +45,7 @@ export function buildQuizPromptContext(
     abortContextNote: turn.abortContextNote
       ? truncate(turn.abortContextNote, 300)
       : undefined,
+    projectContext: project ? formatProjectContext(project) : undefined,
     maxQuestions: config.maxQuestions,
     maxOptions: config.maxOptions,
     customInstruction: config.customInstruction,
@@ -71,7 +76,7 @@ If the next step is obvious (e.g. agent proposed something clear), return:
 { "questions": [], "skipped": true, "skipReason": "brief reason" }
 
 ── Context ──
-
+${ctx.projectContext ? `\nProject:\n${ctx.projectContext}\n` : ""}
 TurnStatus: ${ctx.turnStatus}
 ${ctx.abortContextNote ? `\nAbortContext:\n${ctx.abortContextNote}` : ""}
 

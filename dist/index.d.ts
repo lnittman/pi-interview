@@ -1,10 +1,8 @@
 /**
  * pi-quiz — Multiple-choice next-prompt quiz for pi.
  *
- * After each agent turn, generates structured multiple-choice questions
- * to help the user decide what to do next. Every question has options.
- *
- * Ctrl+Q to trigger manually. /quiz for commands.
+ * Every question is multiple choice. Grounded in specific files, errors, signals.
+ * Ctrl+Q to trigger. /quiz for commands. Haiku by default.
  */
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 export default function quiz(pi: ExtensionAPI): void;

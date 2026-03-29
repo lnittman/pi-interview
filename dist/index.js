@@ -1,32 +1,73 @@
 /**
  * pi-quiz — Multiple-choice next-prompt quiz for pi.
  *
- * After each agent turn, generates structured multiple-choice questions
- * to help the user decide what to do next. Every question has options.
- *
- * Ctrl+Q to trigger manually. /quiz for commands.
+ * Every question is multiple choice. Grounded in specific files, errors, signals.
+ * Ctrl+Q to trigger. /quiz for commands. Haiku by default.
  */
 import { completeSimple } from "@mariozechner/pi-ai";
 import { buildTurnContext, buildTurnContextFromBranch } from "./core/signals.js";
 import { buildQuizPromptContext } from "./prompts/interview-template.js";
 import { QuizModelClient } from "./adapters/model-client.js";
 import { showQuizUI } from "./ui/interview-ui.js";
+import { emptyState, recordQuizCall, shouldBackOff, formatUsageStatus, } from "./core/state.js";
+import { buildProjectSnapshot, } from "./core/project-context.js";
 import { DEFAULT_CONFIG } from "./core/types.js";
+const CUSTOM_TYPE = "pi-quiz-state";
 export default function quiz(pi) {
     let config = { ...DEFAULT_CONFIG };
-    let currentContext;
-    let lastTurnContext;
+    let ctx;
+    let lastTurn;
     let quizActive = false;
     let epoch = 0;
-    const modelClient = new QuizModelClient({ getContext: () => currentContext }, completeSimple);
+    let state = emptyState();
+    let projectSnapshot;
+    const modelClient = new QuizModelClient({ getContext: () => ctx }, completeSimple);
+    // ─── State Persistence ────────────────────────────────────────────────
+    function persistState() {
+        pi.appendEntry(CUSTOM_TYPE, { ...state });
+    }
+    function restoreState(entries) {
+        state = emptyState();
+        for (const entry of entries) {
+            if (entry.type === "custom" && entry.customType === CUSTOM_TYPE && entry.data) {
+                if (entry.data.version === 1) {
+                    state = entry.data;
+                }
+            }
+        }
+    }
+    function refreshUsageWidget() {
+        if (!ctx?.hasUI)
+            return;
+        const status = formatUsageStatus(state);
+        ctx.ui.setStatus("quiz-usage", status);
+    }
+    // ─── Project Context ──────────────────────────────────────────────────
+    async function ensureProjectSnapshot() {
+        if (!projectSnapshot && ctx) {
+            try {
+                projectSnapshot = await buildProjectSnapshot(ctx.cwd);
+            }
+            catch {
+                // Non-critical — quiz works without it
+            }
+        }
+    }
     // ─── Core Flow ────────────────────────────────────────────────────────
-    async function runQuiz(turn, ctx, currentEpoch) {
-        if (!ctx.hasUI || quizActive)
+    async function runQuiz(turn, context, currentEpoch, manual = false) {
+        if (!context.hasUI || quizActive)
             return;
         if (currentEpoch !== epoch)
             return;
-        // Skip trivially short responses
-        if (config.skipOnSimpleResponse &&
+        // Don't re-quiz the same turn
+        if (!manual && state.lastQuizTurnId === turn.turnId)
+            return;
+        // Back-off after repeated skips/cancels (unless manual)
+        if (!manual && shouldBackOff(state))
+            return;
+        // Skip trivially short responses (unless manual)
+        if (!manual &&
+            config.skipOnSimpleResponse &&
             turn.assistantText.length < 100 &&
             turn.unresolvedQuestions.length === 0 &&
             turn.status === "success") {
@@ -34,63 +75,98 @@ export default function quiz(pi) {
         }
         quizActive = true;
         try {
-            const promptContext = buildQuizPromptContext(turn, config);
-            ctx.ui.setWidget("quiz-status", [
-                `  ${ctx.ui.theme.fg("dim", "✦ generating quiz...")}`,
+            await ensureProjectSnapshot();
+            const promptContext = buildQuizPromptContext(turn, config, projectSnapshot);
+            context.ui.setWidget("quiz-loading", [
+                `  ${context.ui.theme.fg("dim", "✦ quiz...")}`,
             ], { placement: "belowEditor" });
             const result = await modelClient.generateQuiz(promptContext, config);
             if (currentEpoch !== epoch) {
-                ctx.ui.setWidget("quiz-status", undefined);
+                context.ui.setWidget("quiz-loading", undefined);
                 return;
             }
+            context.ui.setWidget("quiz-loading", undefined);
             if (result.skipped || result.questions.length === 0) {
-                ctx.ui.setWidget("quiz-status", [
-                    `  ${ctx.ui.theme.fg("dim", `✦ skipped${result.skipReason ? ` — ${result.skipReason}` : ""}`)}`,
-                ], { placement: "belowEditor" });
-                setTimeout(() => ctx.ui.setWidget("quiz-status", undefined), 2500);
+                state = recordQuizCall(state, result.usage, "skipped", turn.turnId);
+                persistState();
+                refreshUsageWidget();
+                // Brief flash only on first few skips
+                if (state.consecutiveSkips <= 2) {
+                    context.ui.setWidget("quiz-loading", [
+                        `  ${context.ui.theme.fg("dim", `✦ —${result.skipReason ? ` ${result.skipReason}` : ""}`)}`,
+                    ], { placement: "belowEditor" });
+                    setTimeout(() => context.ui.setWidget("quiz-loading", undefined), 1500);
+                }
                 return;
             }
-            ctx.ui.setWidget("quiz-status", undefined);
+            // Show usage inline
             if (result.usage) {
                 const cost = result.usage.costTotal ? ` $${result.usage.costTotal.toFixed(4)}` : "";
-                ctx.ui.setStatus("quiz", `✦ quiz: ${result.usage.totalTokens} tok${cost}`);
+                context.ui.setStatus("quiz", `✦ ${result.usage.totalTokens} tok${cost}`);
             }
-            const submission = await showQuizUI(ctx, result.questions, config);
-            ctx.ui.setStatus("quiz", undefined);
-            if (!submission.cancelled && submission.composedPrompt) {
-                ctx.ui.setEditorText(submission.composedPrompt);
+            const submission = await showQuizUI(context, result.questions, config);
+            context.ui.setStatus("quiz", undefined);
+            if (submission.cancelled) {
+                state = recordQuizCall(state, result.usage, "cancelled", turn.turnId);
             }
+            else {
+                state = recordQuizCall(state, result.usage, "completed", turn.turnId);
+                if (submission.composedPrompt) {
+                    context.ui.setEditorText(submission.composedPrompt);
+                }
+            }
+            persistState();
+            refreshUsageWidget();
         }
         catch (error) {
-            ctx.ui.setWidget("quiz-status", undefined);
+            context.ui.setWidget("quiz-loading", undefined);
             const msg = error instanceof Error ? error.message : String(error);
-            ctx.ui.notify(`quiz error: ${msg.slice(0, 80)}`, "error");
+            context.ui.notify(`quiz: ${msg.slice(0, 80)}`, "error");
         }
         finally {
             quizActive = false;
         }
     }
     // ─── Helpers ──────────────────────────────────────────────────────────
-    function getTurnFromBranch(ctx) {
-        const branchEntries = ctx.sessionManager
+    function getTurnFromBranch(context) {
+        const branchEntries = context.sessionManager
             .getBranch()
             .filter((e) => e.type === "message");
         return buildTurnContextFromBranch(branchEntries) ?? undefined;
     }
     // ─── Events ───────────────────────────────────────────────────────────
-    pi.on("session_start", async (_ev, ctx) => { currentContext = ctx; epoch++; });
-    pi.on("session_switch", async (_ev, ctx) => { currentContext = ctx; epoch++; quizActive = false; });
-    pi.on("session_fork", async (_ev, ctx) => { currentContext = ctx; epoch++; quizActive = false; });
-    pi.on("agent_end", async (event, ctx) => {
-        currentContext = ctx;
+    pi.on("session_start", async (_ev, c) => {
+        ctx = c;
+        epoch++;
+        projectSnapshot = undefined;
+        restoreState(c.sessionManager.getEntries());
+        refreshUsageWidget();
+    });
+    pi.on("session_switch", async (_ev, c) => {
+        ctx = c;
+        epoch++;
+        quizActive = false;
+        projectSnapshot = undefined;
+        restoreState(c.sessionManager.getEntries());
+        refreshUsageWidget();
+    });
+    pi.on("session_fork", async (_ev, c) => {
+        ctx = c;
+        epoch++;
+        quizActive = false;
+        restoreState(c.sessionManager.getEntries());
+        refreshUsageWidget();
+    });
+    pi.on("agent_end", async (event, c) => {
+        ctx = c;
         const e = ++epoch;
         if (config.mode !== "auto")
             return;
-        const branchEntries = ctx.sessionManager.getBranch();
+        const branchEntries = c.sessionManager.getBranch();
         const branchMessages = branchEntries
             .filter((entry) => entry.type === "message")
             .map((entry) => entry.message);
-        const leafId = ctx.sessionManager.getLeafId() ?? `turn-${Date.now()}`;
+        const leafId = c.sessionManager.getLeafId() ?? `turn-${Date.now()}`;
         const turn = buildTurnContext({
             turnId: leafId,
             sourceLeafId: leafId,
@@ -100,93 +176,112 @@ export default function quiz(pi) {
         });
         if (!turn)
             return;
-        lastTurnContext = turn;
-        await runQuiz(turn, ctx, e);
+        lastTurn = turn;
+        await runQuiz(turn, c, e);
     });
-    pi.on("input", async (_ev, ctx) => {
-        currentContext = ctx;
+    pi.on("input", async (_ev, c) => {
+        ctx = c;
         epoch++;
-        ctx.ui.setWidget("quiz-status", undefined);
+        c.ui.setWidget("quiz-loading", undefined);
         return { action: "continue" };
     });
     // ─── Commands ─────────────────────────────────────────────────────────
     pi.registerCommand("quiz", {
-        description: "Quiz: ask | status | config <key> <value>",
-        handler: async (args, ctx) => {
-            currentContext = ctx;
+        description: "quiz: ask | status | reset | config <key> <value>",
+        handler: async (args, c) => {
+            ctx = c;
             const [sub, ...rest] = args.trim().split(/\s+/);
             if (!sub || sub === "ask") {
-                const turn = lastTurnContext ?? getTurnFromBranch(ctx);
+                const turn = lastTurn ?? getTurnFromBranch(c);
                 if (!turn) {
-                    ctx.ui.notify("No conversation context for quiz", "warning");
+                    c.ui.notify("No conversation context", "warning");
                     return;
                 }
                 const e = ++epoch;
-                await runQuiz(turn, ctx, e);
+                await runQuiz(turn, c, e, true);
                 return;
             }
             if (sub === "status") {
+                const usage = state.usage;
+                const lines = [
+                    `✦ pi-quiz`,
+                    `mode: ${config.mode} · model: ${config.model}`,
+                    `maxQ: ${config.maxQuestions} · maxOpts: ${config.maxOptions}`,
+                    `calls: ${usage.calls} (${usage.completions} used, ${usage.skips} skipped, ${usage.cancels} cancelled)`,
+                    `tokens: ↑${usage.totalInputTokens} ↓${usage.totalOutputTokens} $${usage.totalCost.toFixed(4)}`,
+                    `backoff: ${shouldBackOff(state) ? "active (3+ skips)" : "off"}`,
+                ];
+                if (projectSnapshot) {
+                    lines.push(`project: ${projectSnapshot.name}${projectSnapshot.branch ? ` (${projectSnapshot.branch})` : ""}`);
+                }
                 pi.sendMessage({
-                    customType: "quiz-status",
-                    content: `✦ pi-quiz\nmode: ${config.mode} · model: ${config.model}\nmaxQ: ${config.maxQuestions} · maxOpts: ${config.maxOptions}\nskip: ${config.skipOnSimpleResponse} · autoSubmit: ${config.autoSubmitSingle}`,
+                    customType: "quiz-info",
+                    content: lines.join("\n"),
                     display: true,
                 }, { triggerTurn: false });
+                return;
+            }
+            if (sub === "reset") {
+                state = emptyState();
+                persistState();
+                refreshUsageWidget();
+                c.ui.notify("quiz state reset", "info");
                 return;
             }
             if (sub === "config") {
                 const key = rest[0];
                 const val = rest.slice(1).join(" ");
                 if (!key) {
-                    ctx.ui.notify("/quiz config <key> <value>", "info");
+                    c.ui.notify("/quiz config <key> <value>", "info");
                     return;
                 }
                 switch (key) {
                     case "mode":
                         if (val === "auto" || val === "manual") {
                             config.mode = val;
-                            ctx.ui.notify(`quiz mode: ${val}`, "info");
+                            c.ui.notify(`mode: ${val}`, "info");
                         }
                         break;
                     case "model":
                         config.model = val || DEFAULT_CONFIG.model;
-                        ctx.ui.notify(`quiz model: ${config.model}`, "info");
+                        c.ui.notify(`model: ${config.model}`, "info");
                         break;
                     case "maxQuestions":
                         config.maxQuestions = Math.max(1, Math.min(5, parseInt(val) || 3));
-                        ctx.ui.notify(`quiz maxQuestions: ${config.maxQuestions}`, "info");
+                        c.ui.notify(`maxQuestions: ${config.maxQuestions}`, "info");
                         break;
                     case "maxOptions":
                         config.maxOptions = Math.max(2, Math.min(8, parseInt(val) || 5));
-                        ctx.ui.notify(`quiz maxOptions: ${config.maxOptions}`, "info");
+                        c.ui.notify(`maxOptions: ${config.maxOptions}`, "info");
                         break;
                     case "skip":
                         config.skipOnSimpleResponse = val !== "false";
-                        ctx.ui.notify(`quiz skip: ${config.skipOnSimpleResponse}`, "info");
+                        c.ui.notify(`skip: ${config.skipOnSimpleResponse}`, "info");
                         break;
                     case "instruction":
                         config.customInstruction = val;
-                        ctx.ui.notify(val ? `quiz instruction: "${val}"` : "quiz instruction cleared", "info");
+                        c.ui.notify(val ? `instruction: "${val}"` : "instruction cleared", "info");
                         break;
                     default:
-                        ctx.ui.notify(`Unknown: ${key}`, "warning");
+                        c.ui.notify(`Unknown: ${key}`, "warning");
                 }
                 return;
             }
-            ctx.ui.notify("/quiz [ask | status | config <key> <value>]", "info");
+            c.ui.notify("/quiz [ask | status | reset | config <key> <value>]", "info");
         },
     });
     // ─── Shortcut ─────────────────────────────────────────────────────────
     pi.registerShortcut("ctrl+q", {
         description: "Trigger quiz",
-        handler: async (ctx) => {
-            currentContext = ctx;
-            const turn = lastTurnContext ?? getTurnFromBranch(ctx);
+        handler: async (c) => {
+            ctx = c;
+            const turn = lastTurn ?? getTurnFromBranch(c);
             if (!turn) {
-                ctx.ui.notify("No conversation context", "warning");
+                c.ui.notify("No conversation context", "warning");
                 return;
             }
             const e = ++epoch;
-            await runQuiz(turn, ctx, e);
+            await runQuiz(turn, c, e, true);
         },
     });
 }
