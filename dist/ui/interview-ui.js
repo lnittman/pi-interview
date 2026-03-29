@@ -2,8 +2,9 @@
  * Quiz UI — always multiple choice.
  *
  * Every question shows numbered options + "Type something else..." at the bottom.
- * Single question → selecting auto-submits. Multiple → Tab between, Enter to confirm.
+ * Uses pi-tui's matchesKey/Key for cross-terminal key handling.
  */
+import { Key, matchesKey } from "@mariozechner/pi-tui";
 import { buildSubmission } from "../prompts/compose-template.js";
 export async function showQuizUI(ctx, questions, config) {
     const startTime = Date.now();
@@ -24,17 +25,16 @@ export async function showQuizUI(ctx, questions, config) {
         function q() {
             return questions[currentQ];
         }
-        /** Total selectable rows: options + "Type something else..." */
         function rowCount() {
-            return q().options.length + 1;
+            return q().options.length + 1; // options + "Type something else..."
         }
-        function submit(cancelled) {
+        function finish(cancelled) {
             const allAnswers = questions.map((question) => {
                 return answers.get(question.id) ?? { questionId: question.id, skipped: true };
             });
             done(buildSubmission(questions, allAnswers, config.maxPromptChars, startTime, cancelled));
         }
-        function selectOption() {
+        function selectCurrentOption() {
             const question = q();
             const opt = question.options[optionIdx];
             if (!opt)
@@ -45,15 +45,13 @@ export async function showQuizUI(ctx, questions, config) {
                     selectedOptions: [opt.label],
                     skipped: false,
                 });
-                // Single question → auto submit; multi-question → advance
                 if (questions.length === 1 && config.autoSubmitSingle) {
-                    submit(false);
+                    finish(false);
                     return;
                 }
-                advance();
+                advanceQuestion();
             }
             else {
-                // Multi: toggle
                 const existing = answers.get(question.id);
                 const selected = existing?.selectedOptions ? [...existing.selectedOptions] : [];
                 const idx = selected.indexOf(opt.label);
@@ -69,7 +67,7 @@ export async function showQuizUI(ctx, questions, config) {
                 refresh();
             }
         }
-        function advance() {
+        function advanceQuestion() {
             if (currentQ < questions.length - 1) {
                 currentQ++;
                 optionIdx = 0;
@@ -77,19 +75,19 @@ export async function showQuizUI(ctx, questions, config) {
                 textInput = "";
             }
             else {
-                submit(false);
+                finish(false);
             }
             refresh();
         }
         function handleInput(data) {
-            // ── Text mode ──
+            // ── Text input mode ──
             if (textMode) {
-                if (data === "\x1b") {
+                if (matchesKey(data, Key.escape)) {
                     textMode = false;
                     refresh();
                     return;
                 }
-                if (data === "\r" || data === "\n") {
+                if (matchesKey(data, Key.enter)) {
                     if (textInput.trim()) {
                         answers.set(q().id, {
                             questionId: q().id,
@@ -100,37 +98,43 @@ export async function showQuizUI(ctx, questions, config) {
                     textMode = false;
                     textInput = "";
                     if (questions.length === 1 && config.autoSubmitSingle) {
-                        submit(false);
+                        finish(false);
                     }
                     else {
-                        advance();
+                        advanceQuestion();
                     }
                     return;
                 }
-                if (data === "\x7f" || data === "\b") {
+                if (matchesKey(data, Key.backspace)) {
                     textInput = textInput.slice(0, -1);
                     refresh();
                     return;
                 }
+                // Accept printable characters
                 if (data.length === 1 && data.charCodeAt(0) >= 32) {
                     textInput += data;
                     refresh();
-                    return;
                 }
                 return;
             }
-            // ── Navigation ──
-            if (data === "\x1b[A") { // Up
+            // ── Escape: dismiss ──
+            if (matchesKey(data, Key.escape)) {
+                finish(true);
+                return;
+            }
+            // ── Arrow navigation ──
+            if (matchesKey(data, Key.up)) {
                 optionIdx = Math.max(0, optionIdx - 1);
                 refresh();
                 return;
             }
-            if (data === "\x1b[B") { // Down
+            if (matchesKey(data, Key.down)) {
                 optionIdx = Math.min(rowCount() - 1, optionIdx + 1);
                 refresh();
                 return;
             }
-            if (data === "\t" || data === "\x1b[C") { // Tab / Right
+            // ── Tab / arrow right: next question ──
+            if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) {
                 if (questions.length > 1) {
                     currentQ = (currentQ + 1) % questions.length;
                     optionIdx = 0;
@@ -138,7 +142,8 @@ export async function showQuizUI(ctx, questions, config) {
                 }
                 return;
             }
-            if (data === "\x1b\t" || data === "\x1b[D") { // Shift-Tab / Left
+            // ── Shift-tab / arrow left: prev question ──
+            if (matchesKey(data, Key.shift("tab")) || matchesKey(data, Key.left)) {
                 if (questions.length > 1) {
                     currentQ = (currentQ - 1 + questions.length) % questions.length;
                     optionIdx = 0;
@@ -146,8 +151,8 @@ export async function showQuizUI(ctx, questions, config) {
                 }
                 return;
             }
-            // ── Select ──
-            if (data === "\r" || data === "\n") {
+            // ── Enter: select option or enter text mode ──
+            if (matchesKey(data, Key.enter)) {
                 if (optionIdx === q().options.length) {
                     // "Type something else..."
                     textMode = true;
@@ -155,30 +160,22 @@ export async function showQuizUI(ctx, questions, config) {
                     refresh();
                     return;
                 }
-                selectOption();
+                selectCurrentOption();
                 return;
             }
-            // Space also selects for single
-            if (data === " " && q().type === "single" && optionIdx < q().options.length) {
-                selectOption();
+            // ── Space: also selects for single-choice ──
+            if (matchesKey(data, Key.space) && q().type === "single" && optionIdx < q().options.length) {
+                selectCurrentOption();
                 return;
             }
-            // ── Number keys ──
-            const num = parseInt(data, 10);
-            if (!isNaN(num) && num >= 1 && num <= q().options.length) {
-                optionIdx = num - 1;
-                selectOption();
-                return;
-            }
-            // ── Multi: confirm selection and advance ──
-            if (data === "\r" && q().type === "multi") {
-                advance();
-                return;
-            }
-            // ── Escape ──
-            if (data === "\x1b") {
-                submit(true);
-                return;
+            // ── Number keys: quick-select ──
+            if (data.length === 1 && data >= "1" && data <= "9") {
+                const num = parseInt(data, 10);
+                if (num >= 1 && num <= q().options.length) {
+                    optionIdx = num - 1;
+                    selectCurrentOption();
+                    return;
+                }
             }
         }
         function render(width) {
@@ -188,9 +185,8 @@ export async function showQuizUI(ctx, questions, config) {
             const w = Math.max(20, width);
             const question = q();
             const selected = answers.get(question.id)?.selectedOptions ?? [];
-            // Header
             lines.push(theme.fg("accent", "─".repeat(w)));
-            // Title with question counter
+            // Progress dots for multi-question
             if (questions.length > 1) {
                 const dots = questions.map((_, i) => {
                     const answered = answers.has(questions[i].id);
@@ -203,18 +199,15 @@ export async function showQuizUI(ctx, questions, config) {
             else {
                 lines.push(` ${theme.fg("accent", "✦")}`);
             }
-            // Question text
             lines.push(` ${theme.fg("text", theme.bold(question.text))}`);
             lines.push("");
             if (textMode) {
-                // Freeform input
                 const display = textInput || theme.fg("dim", "Type your instruction...");
                 lines.push(`  ${theme.fg("accent", "▸")} ${display}${theme.fg("accent", "█")}`);
                 lines.push("");
                 lines.push(theme.fg("dim", "  Enter submit · Esc back"));
             }
             else {
-                // Options
                 const opts = question.options;
                 for (let i = 0; i < opts.length; i++) {
                     const opt = opts[i];
@@ -241,7 +234,6 @@ export async function showQuizUI(ctx, questions, config) {
                     : theme.fg("muted", "Type something else...");
                 lines.push(` ${pointer}   ${label}`);
                 lines.push("");
-                // Hints
                 const hints = ["↑↓ navigate"];
                 if (question.type === "single")
                     hints.push("Enter/#");
@@ -258,7 +250,7 @@ export async function showQuizUI(ctx, questions, config) {
         }
         return {
             render,
-            invalidate: () => { cachedLines = undefined; },
+            invalidate() { cachedLines = undefined; },
             handleInput,
         };
     });

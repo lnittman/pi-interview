@@ -1,6 +1,6 @@
 {
   "name": "pi-quiz",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "Multiple-choice next-prompt quiz for pi — structured options instead of passive ghost text",
   "license": "MIT",

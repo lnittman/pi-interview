@@ -113,7 +113,8 @@ export default function quiz(pi) {
             else {
                 state = recordQuizCall(state, result.usage, "completed", turn.turnId);
                 if (submission.composedPrompt) {
-                    context.ui.setEditorText(submission.composedPrompt);
+                    // Send directly as a user message — don't pollute the editor
+                    pi.sendUserMessage(submission.composedPrompt);
                 }
             }
             persistState();
