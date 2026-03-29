@@ -95,14 +95,24 @@ ${ctx.customInstruction.trim() ? `\nPreference:\n${ctx.customInstruction.trim()}
 
 ── Rules ──
 
+GROUNDING (critical):
+- Every option label MUST reference specific artifacts from the context above
+- If TouchedFiles has "src/auth/login.ts", options should name that file, not say "the auth module"
+- If ToolSignals has "bash(npm test):error", options should reference the test failure specifically
+- If UnresolvedQuestions exist, turn them into structured options verbatim
+- NEVER generate generic options like "Continue working", "Fix issues", "Improve code"
+- Bad: "Add error handling" — Good: "Add try/catch to parseConfig in src/config/loader.ts"
+- Bad: "Run tests" — Good: "Re-run the 3 failing vitest specs in packages/backend"
+
+STRUCTURE:
 - Generate 1-${ctx.maxQuestions} questions, each with 2-${ctx.maxOptions} options
 - type is ALWAYS "single" or "multi" — NEVER "text"
-- Options must be specific actions grounded in the conversation, not generic
-- If the assistant asked questions, turn them into options
-- If errors occurred, offer recovery strategies as options
-- If a task completed, offer concrete next steps as options
-- First option should be the most likely/natural choice
-- Use "multi" only when combining actions makes sense
-- Labels: concrete verbs ("Run the tests", "Fix the linting errors", "Add error handling to the parser")
-- Skip when: agent proposed a clear step and user just needs to affirm, or conversation is wrapping up`;
+- First option = most natural/likely next step
+- Use "multi" only when combining makes sense (e.g. "fix lint AND run tests")
+- description field: use for file paths, error counts, or other concrete context
+
+SKIP when:
+- Agent proposed a clear next step and user just needs to affirm
+- Conversation is wrapping up naturally
+- The last exchange was a simple Q&A with no follow-up implied`;
 }

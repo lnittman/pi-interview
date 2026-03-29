@@ -135,7 +135,7 @@ export class QuizModelClient {
         model,
         {
           systemPrompt:
-            "You generate multiple-choice quiz questions. Return ONLY valid JSON. Every question MUST have options. No text-only questions.",
+            "You generate multiple-choice quiz questions for a coding agent session. Return ONLY valid JSON. Every question MUST have options grounded in specific files, errors, and tool outputs from the context — never generic options. No text-only questions.",
           messages: [
             {
               role: "user",
