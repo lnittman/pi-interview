@@ -12,6 +12,7 @@ import { showQuizUI } from "./ui/interview-ui.js";
 import { emptyState, recordQuizCall, shouldBackOff, formatUsageStatus, } from "./core/state.js";
 import { buildProjectSnapshot, } from "./core/project-context.js";
 import { DEFAULT_CONFIG } from "./core/types.js";
+import { getDemoTurn, listDemoScenarios } from "./core/demo.js";
 const CUSTOM_TYPE = "pi-quiz-state";
 export default function quiz(pi) {
     let config = { ...DEFAULT_CONFIG };
@@ -187,7 +188,7 @@ export default function quiz(pi) {
     });
     // ─── Commands ─────────────────────────────────────────────────────────
     pi.registerCommand("quiz", {
-        description: "quiz: ask | status | reset | config <key> <value>",
+        description: "quiz: ask | demo [scenario] | status | reset | config <key> <value>",
         handler: async (args, c) => {
             ctx = c;
             const [sub, ...rest] = args.trim().split(/\s+/);
@@ -197,6 +198,17 @@ export default function quiz(pi) {
                     c.ui.notify("No conversation context", "warning");
                     return;
                 }
+                const e = ++epoch;
+                await runQuiz(turn, c, e, true);
+                return;
+            }
+            if (sub === "demo") {
+                const scenario = rest[0];
+                if (scenario === "list" || scenario === "help") {
+                    c.ui.notify(`scenarios: ${listDemoScenarios().join(", ")}`, "info");
+                    return;
+                }
+                const turn = getDemoTurn(scenario);
                 const e = ++epoch;
                 await runQuiz(turn, c, e, true);
                 return;
