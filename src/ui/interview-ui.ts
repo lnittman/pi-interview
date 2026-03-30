@@ -3,15 +3,14 @@
  *
  * Key mappings:
  *   j/k or ↑↓         → navigate options
- *   Enter/Space       → toggle checkbox
- *   ≤ (Option+,)      → toggle checkbox (alt)
- *   Tab               → confirm & advance
- *   i or Esc          → notes mode (Esc enters notes, second Esc saves)
- *   ≤ (Option+,)      → notes mode (alt)
- *   ≥ (Option+.)      → toggle checkbox (alt)
- *   h/l or ←→         → switch question
- *   q                 → dismiss
- *   1-9               → quick-toggle option
+ *   Enter/Space        → toggle checkbox
+ *   ≤ (Option+,)       → toggle checkbox (alt)
+ *   Tab                → confirm & advance
+ *   i or Esc           → notes mode (Esc enters notes, second Esc saves)
+ *   ≥ (Option+.)       → notes mode (alt)
+ *   h/l or ←→          → switch question
+ *   q                  → dismiss
+ *   1-9                → quick-toggle option
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -80,11 +79,7 @@ export async function showInterviewUI(
     }
 
     function advance() {
-      if (questions.length === 1) {
-        finish(false);
-        return;
-      }
-      // Next unanswered
+      if (questions.length === 1) { finish(false); return; }
       for (let i = currentQ + 1; i < questions.length; i++) {
         const sel = selections.get(questions[i].id);
         if (!sel || sel.size === 0) { currentQ = i; optionCursor = 0; refresh(); return; }
@@ -109,6 +104,7 @@ export async function showInterviewUI(
         if (matchesKey(data, Key.escape) || matchesKey(data, Key.enter)) {
           const trimmed = noteText.trim();
           if (trimmed) notes.set(q().id, trimmed);
+          else notes.delete(q().id);
           noteMode = false;
           refresh();
           return;
@@ -119,11 +115,11 @@ export async function showInterviewUI(
           return;
         }
         // Accept printable text including paste (multi-char) and Unicode.
-        // Strip control chars and bracketed paste markers ([200~ / [201~).
+        // Strip control chars and bracketed paste markers.
         const printable = data
-          .replace(/\x1b\[20[01]~/g, "")  // bracketed paste open/close
-          .replace(/\[20[01]~/g, "")       // leftover after partial ESC strip
-          .replace(/[\x00-\x1f\x7f]/g, ""); // control chars + DEL
+          .replace(/\x1b\[20[01]~/g, "")
+          .replace(/\[20[01]~/g, "")
+          .replace(/[\x00-\x1f\x7f]/g, "");
         if (printable.length > 0) {
           noteText += printable;
           refresh();
@@ -138,11 +134,8 @@ export async function showInterviewUI(
         return;
       }
 
-      // ── Notes mode: i, Escape, or ≤ (Option+,) ──
-      // Escape enters notes mode instead of dismissing. This makes
-      // terminals that send Esc on certain keys (or double-Esc)
-      // toggle in/out of notes naturally: first Esc enters, second saves.
-      if (data === "i" || data === "\u2264" || matchesKey(data, Key.escape)) {
+      // ── Notes mode: i, Escape, ≤ (Option+,), ≥ (Option+.) ──
+      if (data === "i" || data === "\u2264" || data === "\u2265" || matchesKey(data, Key.escape)) {
         noteMode = true;
         noteText = notes.get(q().id) || "";
         refresh();
@@ -161,13 +154,13 @@ export async function showInterviewUI(
         return;
       }
 
-      // ── Toggle: Enter / Space / ≥ (Option+. / R1) ──
-      if (matchesKey(data, Key.enter) || matchesKey(data, Key.space) || data === "\u2265") {
+      // ── Toggle: Enter / Space ──
+      if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
         toggleCurrent();
         return;
       }
 
-      // ── Confirm & advance: Tab / R2 ──
+      // ── Confirm & advance: Tab ──
       if (matchesKey(data, Key.tab)) {
         const sel = selections.get(q().id)!;
         if (sel.size === 0) sel.add(optionCursor);
@@ -223,8 +216,10 @@ export async function showInterviewUI(
       if (questions.length > 1) {
         const dots = questions.map((qn, idx) => {
           const has = (selections.get(qn.id)?.size ?? 0) > 0;
+          const hasNote = notes.has(qn.id);
           const active = idx === currentQ;
-          const dot = has ? "\u25cf" : "\u25cb";
+          let dot = has ? "\u25cf" : "\u25cb";
+          if (hasNote) dot += "+";
           return active ? theme.fg("accent", dot) : theme.fg(has ? "success" : "dim", dot);
         }).join(" ");
         add(` ${theme.fg("accent", "*")} ${dots}`);
@@ -237,16 +232,16 @@ export async function showInterviewUI(
       for (const ql of qLines) add(` ${ql}`);
       blank();
 
-      // Options
+      // ── Options ──
       const opts = question.options;
       for (let idx = 0; idx < opts.length; idx++) {
         const opt = opts[idx];
-        const cursor = idx === optionCursor;
+        const isCursor = idx === optionCursor;
         const checked = sel.has(idx);
-        const pointer = cursor ? theme.fg("accent", " > ") : "   ";
+        const pointer = isCursor ? theme.fg("accent", " > ") : "   ";
         const box = checked ? theme.fg("success", "[x]") : theme.fg("muted", "[ ]");
         const num = theme.fg("dim", `${idx + 1}`);
-        const color = cursor ? "accent" : checked ? "success" : "text";
+        const color = isCursor ? "accent" : checked ? "success" : "text";
         const optLines = wrapTextWithAnsi(opt.label, w - 12);
         for (let li = 0; li < optLines.length; li++) {
           add(li === 0
@@ -260,47 +255,56 @@ export async function showInterviewUI(
         }
       }
 
-      // Selection count
+      // ── Selection summary ──
       if (sel.size > 0) {
         blank();
         add(`  ${theme.fg("success", `${sel.size} selected`)}`);
       }
 
-      // Notes
+      // ── Notes section ──
       blank();
       const existingNote = notes.get(question.id);
       if (noteMode) {
-        const prefix = "  note: ";
-        const cursor = "_";
-        const text = noteText || theme.fg("dim", "type a note...");
-        // Wrap note text to fit terminal width
-        const maxNoteW = w - prefix.length - 1;
-        if (maxNoteW > 10) {
-          const noteLines = wrapTextWithAnsi(text + cursor, maxNoteW);
-          for (let nl = 0; nl < noteLines.length; nl++) {
-            add(nl === 0 ? `${prefix}${noteLines[nl]}` : `  ${" ".repeat(prefix.length - 2)}${noteLines[nl]}`);
-          }
+        // Active note input — bordered for clarity
+        const innerW = w - 6;
+        add(`  ${theme.fg("accent", "\u250c" + "\u2500".repeat(Math.max(1, innerW)) + "\u2510")}`);
+
+        const text = noteText;
+        const placeholder = theme.fg("dim", "type a note...");
+        if (text.length === 0) {
+          // Show placeholder with cursor
+          add(`  ${theme.fg("accent", "\u2502")} ${placeholder}${theme.fg("accent", "\u2588")}${" ".repeat(Math.max(0, innerW - 17))}${theme.fg("accent", "\u2502")}`);
         } else {
-          add(`${prefix}${text}${cursor}`);
+          // Wrap note text inside the box
+          const noteLines = wrapTextWithAnsi(text, innerW - 2);
+          for (let nl = 0; nl < noteLines.length; nl++) {
+            const isLast = nl === noteLines.length - 1;
+            const cursor = isLast ? theme.fg("accent", "\u2588") : "";
+            add(`  ${theme.fg("accent", "\u2502")} ${noteLines[nl]}${cursor} ${theme.fg("accent", "\u2502")}`);
+          }
         }
-        add(theme.fg("dim", "  Enter save . Esc save"));
+
+        add(`  ${theme.fg("accent", "\u2514" + "\u2500".repeat(Math.max(1, innerW)) + "\u2518")}`);
+        add(theme.fg("dim", `  Enter save . Esc save . Backspace delete`));
       } else if (existingNote) {
-        // Wrap existing note too
-        const noteLines = wrapTextWithAnsi(existingNote, w - 8);
-        for (let nl = 0; nl < noteLines.length; nl++) {
-          add(nl === 0
-            ? `  ${theme.fg("dim", "note: " + noteLines[nl])}`
-            : `        ${theme.fg("dim", noteLines[nl])}`);
-        }
+        // Saved note — subtle display
+        add(`  ${theme.fg("dim", "\u250a")} ${theme.fg("muted", existingNote)}`);
+      } else {
+        // No note yet — hint
+        add(theme.fg("dim", `  i/Esc to add a note`));
       }
 
-      // Hints
+      // ── Hints ──
       blank();
       if (!noteMode) {
-        const h: string[] = ["j/k nav", "Enter toggle", "Tab confirm", "i/Esc note"];
-        if (questions.length > 1) h.push("h/l switch");
-        h.push("q quit");
-        add(theme.fg("dim", `  ${h.join(" . ")}`));
+        const h: string[] = [];
+        h.push(theme.fg("dim", "j/k"));
+        h.push(theme.fg("dim", "Enter toggle"));
+        h.push(theme.fg("dim", "Tab confirm"));
+        h.push(theme.fg("dim", "i note"));
+        if (questions.length > 1) h.push(theme.fg("dim", "h/l switch"));
+        h.push(theme.fg("dim", "q quit"));
+        add(`  ${h.join(theme.fg("dim", " \u00b7 "))}`);
       }
 
       add(theme.fg("accent", "\u2500".repeat(w)));

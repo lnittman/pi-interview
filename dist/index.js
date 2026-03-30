@@ -22,25 +22,29 @@ export default function interview(pi) {
     // Register custom renderer for interview answers
     pi.registerMessageRenderer("pi-interview-answer", (message, options, theme) => {
         const details = message.details;
-        const answers = details?.answers ?? [];
+        const answers = (details?.answers ?? []).filter((a) => !a.skipped);
         const lines = [];
-        lines.push(theme.fg("accent", "\u2726 interview response"));
-        lines.push("");
+        if (answers.length === 0) {
+            return new Text(theme.fg("dim", "(no selections)"), 0, 0);
+        }
+        // Compact: selections on one line, note below
+        const selections = [];
+        const noteLines = [];
         for (const a of answers) {
-            if (a.skipped)
-                continue;
             if (a.selectedOptions?.length) {
                 for (const opt of a.selectedOptions) {
-                    lines.push(`  ${theme.fg("success", "[x]")} ${opt}`);
+                    selections.push(opt);
                 }
             }
             if (a.text) {
-                lines.push(`  ${theme.fg("dim", "note:")} ${a.text}`);
+                noteLines.push(a.text);
             }
         }
-        if (details?.durationMs) {
-            lines.push("");
-            lines.push(theme.fg("dim", `  ${(details.durationMs / 1000).toFixed(1)}s`));
+        if (selections.length > 0) {
+            lines.push(selections.map((s) => theme.fg("success", s)).join(theme.fg("dim", " + ")));
+        }
+        if (noteLines.length > 0) {
+            lines.push(theme.fg("dim", noteLines.join(" ")));
         }
         return new Text(lines.join("\n"), 0, 0);
     });
