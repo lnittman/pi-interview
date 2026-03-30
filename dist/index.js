@@ -4,7 +4,8 @@
  * Every question is multi-select with checkboxes. Grounded in specific files, errors, signals.
  * Ctrl+I to trigger. /interview for commands. Haiku by default.
  */
-import { Text } from "@mariozechner/pi-tui";
+import { getMarkdownTheme } from "@mariozechner/pi-coding-agent";
+import { Markdown } from "@mariozechner/pi-tui";
 import { completeSimple } from "@mariozechner/pi-ai";
 import { buildTurnContext, buildTurnContextFromBranch } from "./core/signals.js";
 import { buildQuizPromptContext } from "./prompts/interview-template.js";
@@ -19,34 +20,25 @@ import { buildAgentContext, extractSessionDepth, } from "./core/agent-context.js
 import { extractTrajectory } from "./core/trajectory.js";
 const CUSTOM_TYPE = "pi-interview-state";
 export default function interview(pi) {
-    // Register custom renderer for interview answers
-    pi.registerMessageRenderer("pi-interview-answer", (message, options, theme) => {
+    // Register custom renderer for interview answers as markdown
+    pi.registerMessageRenderer("pi-interview-answer", (message) => {
         const details = message.details;
         const answers = (details?.answers ?? []).filter((a) => !a.skipped);
-        const lines = [];
         if (answers.length === 0) {
-            return new Text(theme.fg("dim", "(no selections)"), 0, 0);
+            return new Markdown("*(no selections)*", 0, 0, getMarkdownTheme());
         }
-        // Compact: selections on one line, note below
-        const selections = [];
-        const noteLines = [];
+        const parts = [];
         for (const a of answers) {
             if (a.selectedOptions?.length) {
                 for (const opt of a.selectedOptions) {
-                    selections.push(opt);
+                    parts.push(`- **${opt}**`);
                 }
             }
             if (a.text) {
-                noteLines.push(a.text);
+                parts.push(`\n> ${a.text}`);
             }
         }
-        if (selections.length > 0) {
-            lines.push(selections.map((s) => theme.fg("success", s)).join(theme.fg("dim", " + ")));
-        }
-        if (noteLines.length > 0) {
-            lines.push(theme.fg("dim", noteLines.join(" ")));
-        }
-        return new Text(lines.join("\n"), 0, 0);
+        return new Markdown(parts.join("\n"), 0, 0, getMarkdownTheme());
     });
     let config = { ...DEFAULT_CONFIG };
     let ctx;
@@ -357,19 +349,7 @@ export default function interview(pi) {
             c.ui.notify("/quiz [ask | status | reset | config <key> <value>]", "info");
         },
     });
-    // ─── Shortcut ─────────────────────────────────────────────────────────
-    pi.registerShortcut("ctrl+i", {
-        description: "Trigger interview",
-        handler: async (c) => {
-            ctx = c;
-            const turn = lastTurn ?? getTurnFromBranch(c);
-            if (!turn) {
-                c.ui.notify("No conversation context", "warning");
-                return;
-            }
-            const e = ++epoch;
-            await runQuiz(turn, c, e, true);
-        },
-    });
+    // No keyboard shortcut — Ctrl+I = Tab (0x09) which breaks vim/tmux.
+    // Use /interview command or auto-trigger instead.
 }
 //# sourceMappingURL=index.js.map

@@ -1,11 +1,8 @@
 /**
  * Interview prompt template.
  *
- * Informed by:
- * - Ask-deep SKILL.md: OARS technique, question archetypes, depth calibration
- * - Saya: signal calibration (directive types), intimacy/channel tier scaling
- * - Agents CLI: HIL workflow patterns (structured questions → typed answers)
- * - Ask-user extension: multi-select + notes UX (the UI contract)
+ * No archetypes, no situation matching, no template logic.
+ * Give the model the full context and let it reason about what to ask.
  */
 import type { TurnContext, QuizConfig } from "../core/types.js";
 import type { ProjectSnapshot } from "../core/project-context.js";
@@ -20,9 +17,7 @@ export interface QuizPromptContext {
     abortContextNote?: string;
     projectContext?: string;
     agentContext?: string;
-    /** Condensed session trajectory — what happened in prior turns */
     trajectory?: string[];
-    /** All files touched across the full session */
     sessionFiles?: string[];
     maxQuestions: number;
     maxOptions: number;
