@@ -1,17 +1,19 @@
 /**
- * Interview UI — multi-select + notes, controller + keyboard ergonomic.
+ * Interview UI — multi-select + notes.
  *
  * Key mappings:
- *   j/k or ↑↓ or D-pad     → navigate options
- *   Enter/Space/Cross(×)    → toggle checkbox
- *   Tab/R2                  → confirm & advance
- *   i                       → notes mode (vim insert)
- *   ≤ (Option+, / L1)       → notes mode (DualSense)
- *   ≥ (Option+. / R1)       → toggle checkbox (DualSense)
- *   h/l or ←→               → switch question
- *   Escape/Circle(○)        → dismiss
- *   q                       → dismiss
- *   1-9                     → quick-toggle option
+ *   j/k or ↑↓         → navigate options
+ *   Enter/Space       → toggle checkbox
+ *   ≤ (Option+,)      → toggle checkbox (alt)
+ *   Tab               → confirm & advance
+ *   i                 → notes mode (vim insert)
+ *   ≥ (Option+.)      → notes mode (alt)
+ *   h/l or ←→         → switch question
+ *   q                 → dismiss
+ *   1-9               → quick-toggle option
+ *
+ * Escape is intentionally a no-op to prevent accidental dismiss
+ * from terminal escape sequences and mode-switching keybinds.
  */
 import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, } from "@mariozechner/pi-tui";
 import { buildSubmission } from "../prompts/compose-template.js";
@@ -112,9 +114,8 @@ export async function showInterviewUI(ctx, questions, config) {
                 return;
             }
             // ── Dismiss: q only ──
-            // Escape is a no-op — both Triangle (Esc,Esc) and Circle (Esc)
-            // send Escape in terminal mode, causing accidental dismissals.
-            // Only 'q' reliably dismisses across keyboard + controller.
+            // Escape is a no-op — terminal escape sequences cause accidental
+            // dismissals. Only 'q' reliably dismisses across all input methods.
             if (data === "q") {
                 finish(true);
                 return;
@@ -122,7 +123,7 @@ export async function showInterviewUI(ctx, questions, config) {
             if (matchesKey(data, Key.escape)) {
                 return; // swallow
             }
-            // ── Notes mode: 'i' (vim insert) or ≤ (Option+, / L1 on DualSense) ──
+            // ── Notes mode: 'i' (vim insert) or ≤ (Option+,) ──
             if (data === "i" || data === "\u2264") {
                 noteMode = true;
                 noteText = notes.get(q().id) || "";

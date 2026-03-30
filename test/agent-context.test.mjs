@@ -35,14 +35,8 @@ describe("buildAgentContext", () => {
     assert.ok(withSurfaces.length > 0, "some projects should have surfaces");
   });
 
-  it("detects current project from cwd", async () => {
-    const ctx = await buildAgentContext("/Users/luke/Developer/apps/arbor");
-    assert.equal(ctx?.currentProject, "arbor");
-  });
-
   it("returns roles", async () => {
     const ctx = await buildAgentContext();
-    // roles.json may or may not exist — just validate structure
     assert.ok(Array.isArray(ctx.roles));
   });
 });
@@ -53,20 +47,20 @@ describe("formatAgentContext", () => {
       rules: [{ name: "core", summary: "Core rules", triggers: ["always"] }],
       skills: [
         { name: "loop", description: "Autonomous work", triggers: ["loop"] },
-        { name: "convex-god", description: "Convex expertise", triggers: ["convex"] },
+        { name: "test-god", description: "Test expertise", triggers: ["test"] },
       ],
       projects: [{
-        name: "arbor",
-        emoji: "🍂",
-        team: "ARBOR",
-        surfaces: ["web", "apple"],
-        frameworks: ["next.js", "convex"],
+        name: "my-app",
+        emoji: "\ud83d\ude80",
+        team: "APP",
+        surfaces: ["web", "mobile"],
+        frameworks: ["next.js"],
       }],
-      roles: [{ role: "BUILD", agent: "codex", model: "gpt-5.4" }],
-      currentProject: "arbor",
+      roles: [{ role: "BUILD", agent: "codex", model: "gpt-5" }],
+      currentProject: "my-app",
     });
-    assert.ok(text.includes("Current project: arbor"));
-    assert.ok(text.includes("arbor"));
+    assert.ok(text.includes("Current project: my-app"));
+    assert.ok(text.includes("my-app"));
     assert.ok(text.includes("Orchestration skills"));
     assert.ok(text.includes("Domain skills"));
     assert.ok(text.includes("BUILD"));

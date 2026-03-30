@@ -92,6 +92,24 @@ export async function buildAgentContext(cwd) {
     return { rules, skills, projects, roles, currentProject };
 }
 /**
+ * Extract session depth from pi's session manager.
+ * Call this from the extension where ctx.sessionManager is available.
+ */
+export function extractSessionDepth(entries) {
+    let messageCount = 0;
+    let turnCount = 0;
+    let hasCompaction = false;
+    for (const e of entries) {
+        if (e.type === "message")
+            messageCount++;
+        if (e.type === "message" && e.message?.role === "user")
+            turnCount++;
+        if (e.type === "compaction")
+            hasCompaction = true;
+    }
+    return { messageCount, turnCount, hasCompaction };
+}
+/**
  * Format agent context for the prompt — structured for question generation.
  */
 export function formatAgentContext(ctx) {
@@ -129,6 +147,11 @@ export function formatAgentContext(ctx) {
     }
     if (ctx.roles.length > 0) {
         lines.push(`Agent roles: ${ctx.roles.map((r) => `${r.role}→${r.agent}`).join(", ")}`);
+    }
+    if (ctx.sessionDepth) {
+        const d = ctx.sessionDepth;
+        const depth = d.turnCount <= 2 ? "early" : d.turnCount <= 8 ? "mid" : "deep";
+        lines.push(`Session: ${depth} (${d.turnCount} turns, ${d.messageCount} msgs${d.hasCompaction ? ", compacted" : ""})`);
     }
     return lines.join("\n");
 }

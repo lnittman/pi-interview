@@ -2,10 +2,10 @@
  * Interview prompt template.
  *
  * Informed by:
- * - Saya's signal calibration (directive types: inform/clarify/help)
- * - Ask-deep's question archetypes (clarification/preference/scope/edge-case)
- * - Agents CLI's HIL workflow patterns (structured questions with typed answers)
- * - Ask-user extension's multi-select + notes UX
+ * - Ask-deep SKILL.md: OARS technique, question archetypes, depth calibration
+ * - Saya: signal calibration (directive types), intimacy/channel tier scaling
+ * - Agents CLI: HIL workflow patterns (structured questions → typed answers)
+ * - Ask-user extension: multi-select + notes UX (the UI contract)
  */
 import type { TurnContext, QuizConfig } from "../core/types.js";
 import type { ProjectSnapshot } from "../core/project-context.js";

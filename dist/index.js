@@ -15,7 +15,7 @@ import { emptyState, recordQuizCall, shouldBackOff, formatUsageStatus, } from ".
 import { buildProjectSnapshot, } from "./core/project-context.js";
 import { DEFAULT_CONFIG } from "./core/types.js";
 import { getDemoTurn, listDemoScenarios } from "./core/demo.js";
-import { buildAgentContext, } from "./core/agent-context.js";
+import { buildAgentContext, extractSessionDepth, } from "./core/agent-context.js";
 const CUSTOM_TYPE = "pi-interview-state";
 export default function interview(pi) {
     // Register custom renderer for interview answers
@@ -111,6 +111,10 @@ export default function interview(pi) {
         ivActive = true;
         try {
             await ensureContexts();
+            // Inject session depth from live session
+            if (agentCtx && context.sessionManager) {
+                agentCtx.sessionDepth = extractSessionDepth(context.sessionManager.getEntries());
+            }
             const promptContext = buildQuizPromptContext(turn, config, projectSnapshot, agentCtx);
             context.ui.setWidget("interview-loading", [
                 `  ${context.ui.theme.fg("dim", "✦ interview...")}`,

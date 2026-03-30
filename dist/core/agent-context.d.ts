@@ -39,11 +39,24 @@ export interface AgentContext {
     }[];
     /** Current cwd project match (if any) */
     currentProject?: string;
+    /** Session depth — how deep into the conversation we are */
+    sessionDepth?: {
+        messageCount: number;
+        turnCount: number;
+        hasCompaction: boolean;
+    };
 }
 /**
  * Build agent context from ~/.agents. Fast and non-critical.
  */
 export declare function buildAgentContext(cwd?: string): Promise<AgentContext | null>;
+/**
+ * Extract session depth from pi's session manager.
+ * Call this from the extension where ctx.sessionManager is available.
+ */
+export declare function extractSessionDepth(entries: {
+    type: string;
+}[]): AgentContext["sessionDepth"];
 /**
  * Format agent context for the prompt — structured for question generation.
  */

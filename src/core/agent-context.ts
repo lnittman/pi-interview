@@ -66,6 +66,8 @@ export interface AgentContext {
   roles: { role: string; agent: string; model: string }[];
   /** Current cwd project match (if any) */
   currentProject?: string;
+  /** Session depth — how deep into the conversation we are */
+  sessionDepth?: { messageCount: number; turnCount: number; hasCompaction: boolean };
 }
 
 async function tryReadJson<T>(path: string): Promise<T | null> {
@@ -158,6 +160,24 @@ export async function buildAgentContext(
 }
 
 /**
+ * Extract session depth from pi's session manager.
+ * Call this from the extension where ctx.sessionManager is available.
+ */
+export function extractSessionDepth(
+  entries: { type: string }[]
+): AgentContext["sessionDepth"] {
+  let messageCount = 0;
+  let turnCount = 0;
+  let hasCompaction = false;
+  for (const e of entries) {
+    if (e.type === "message") messageCount++;
+    if (e.type === "message" && (e as any).message?.role === "user") turnCount++;
+    if (e.type === "compaction") hasCompaction = true;
+  }
+  return { messageCount, turnCount, hasCompaction };
+}
+
+/**
  * Format agent context for the prompt — structured for question generation.
  */
 export function formatAgentContext(ctx: AgentContext): string {
@@ -208,6 +228,14 @@ export function formatAgentContext(ctx: AgentContext): string {
   if (ctx.roles.length > 0) {
     lines.push(
       `Agent roles: ${ctx.roles.map((r) => `${r.role}→${r.agent}`).join(", ")}`
+    );
+  }
+
+  if (ctx.sessionDepth) {
+    const d = ctx.sessionDepth;
+    const depth = d.turnCount <= 2 ? "early" : d.turnCount <= 8 ? "mid" : "deep";
+    lines.push(
+      `Session: ${depth} (${d.turnCount} turns, ${d.messageCount} msgs${d.hasCompaction ? ", compacted" : ""})`
     );
   }
 

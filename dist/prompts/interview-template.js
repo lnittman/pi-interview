@@ -2,17 +2,17 @@
  * Interview prompt template.
  *
  * Informed by:
- * - Saya's signal calibration (directive types: inform/clarify/help)
- * - Ask-deep's question archetypes (clarification/preference/scope/edge-case)
- * - Agents CLI's HIL workflow patterns (structured questions with typed answers)
- * - Ask-user extension's multi-select + notes UX
+ * - Ask-deep SKILL.md: OARS technique, question archetypes, depth calibration
+ * - Saya: signal calibration (directive types), intimacy/channel tier scaling
+ * - Agents CLI: HIL workflow patterns (structured questions → typed answers)
+ * - Ask-user extension: multi-select + notes UX (the UI contract)
  */
 import { formatProjectContext } from "../core/project-context.js";
 import { formatAgentContext } from "../core/agent-context.js";
 function truncate(value, maxChars) {
     if (value.length <= maxChars)
         return value;
-    return value.slice(0, maxChars) + "…";
+    return value.slice(0, maxChars) + "\u2026";
 }
 export function buildQuizPromptContext(turn, config, project, agent) {
     return {
@@ -35,33 +35,32 @@ export function buildQuizPromptContext(turn, config, project, agent) {
     };
 }
 export function renderQuizPrompt(ctx) {
-    return `You generate interview questions to help a developer decide what to instruct their coding agent next. The user sees these as multi-select checkboxes — they can pick one or several options, and add freeform notes.
+    return `You generate interview questions to help a developer decide what to tell their coding agent next.
+
+The user sees multi-select checkboxes. They toggle options with Enter/Space and confirm with Tab.
+They can also add freeform notes via 'i' key. You do NOT generate text-input questions.
 
 Return ONLY valid JSON:
 {
   "questions": [
     {
       "id": "string",
-      "text": "Short question (under 80 chars)",
+      "text": "Question under 80 chars",
       "type": "multi",
       "options": [
-        { "label": "Concrete action (under 60 chars)", "description": "brief context" }
+        { "label": "Action under 60 chars", "description": "brief why/what" }
       ]
     }
   ],
   "skipped": false
 }
 
-Skip (return { "questions": [], "skipped": true, "skipReason": "..." }) when:
-- Agent proposed a clear next step and user just needs to affirm
-- Last exchange was a simple Q&A
-- Conversation is wrapping up
+Skip: { "questions": [], "skipped": true, "skipReason": "..." }
 
-── Context ──
-${ctx.projectContext ? `\nProject:\n${ctx.projectContext}\n` : ""}${ctx.agentContext ? `\nAgent Ecosystem:\n${ctx.agentContext}\n` : ""}
+\u2500\u2500 Situation \u2500\u2500
+${ctx.projectContext ? `\nProject:\n${ctx.projectContext}\n` : ""}${ctx.agentContext ? `\nEcosystem:\n${ctx.agentContext}\n` : ""}
 TurnStatus: ${ctx.turnStatus}
-${ctx.abortContextNote ? `\nAbortContext:\n${ctx.abortContextNote}` : ""}
-
+${ctx.abortContextNote ? `AbortContext: ${ctx.abortContextNote}\n` : ""}
 RecentUserMessages:
 ${ctx.recentUserPrompts.length > 0 ? ctx.recentUserPrompts.map((p) => `- ${p}`).join("\n") : "(none)"}
 
@@ -71,45 +70,51 @@ ${ctx.toolSignals.length > 0 ? ctx.toolSignals.map((s) => `- ${s}`).join("\n") :
 TouchedFiles:
 ${ctx.touchedFiles.length > 0 ? ctx.touchedFiles.map((f) => `- ${f}`).join("\n") : "(none)"}
 
-UnresolvedQuestions (from assistant):
+UnresolvedQuestions:
 ${ctx.unresolvedQuestions.length > 0 ? ctx.unresolvedQuestions.map((q) => `- ${q}`).join("\n") : "(none)"}
 
-LatestAssistantMessage:
+AssistantMessage:
 \`\`\`
 ${ctx.assistantText || "(empty)"}
 \`\`\`
-${ctx.customInstruction.trim() ? `\nUserPreference:\n${ctx.customInstruction.trim()}` : ""}
+${ctx.customInstruction.trim() ? `\nPreference: ${ctx.customInstruction.trim()}` : ""}
 
-── Question Design ──
+\u2500\u2500 Question Design (from ask-deep) \u2500\u2500
 
-QUESTION ARCHETYPES (pick the best fit for the situation):
-- Direction: "What should we focus on next?" — when a task completed and multiple paths exist
-- Scope: "What's in scope for this change?" — when the task is broad or expanding
-- Recovery: "How should we handle the failures?" — when errors occurred
-- Trade-off: "Which approach do you prefer?" — when there are valid alternatives
-- Delegation: "Should we use a skill for this?" — when a skill/agent matches the work
-- Validation: "Does this look right?" — when confirming before a destructive/irreversible step
+ARCHETYPE SELECTION \u2014 pick the best fit:
+- Direction: "What should we focus on next?" \u2014 task completed, multiple paths
+- Scope: "What\u2019s in scope?" \u2014 broad task, risk of scope creep
+- Recovery: "How should we handle the failures?" \u2014 errors occurred
+- Trade-off: "Which approach?" \u2014 valid alternatives with different costs
+- Delegation: "Should we use a skill/agent?" \u2014 a skill or role matches the work
+- Validation: "Does this look right?" \u2014 before irreversible action
 
-GROUNDING (critical):
-- Every option MUST reference specific artifacts from the context above
-- Name actual files, not abstractions: "src/auth/login.ts" not "the auth module"
-- Name actual errors: "the 3 failing vitest specs" not "fix the tests"
-- If UnresolvedQuestions exist, turn them into options verbatim
-- If the Agent Ecosystem lists relevant skills, include "Use [skill-name] for this" as an option
-- If multiple projects are listed, include cross-project options when relevant
-- NEVER generate generic options: "Continue working", "Fix issues", "Improve code"
+SKIP WHEN (save the user\u2019s time):
+- Agent proposed a clear next step \u2014 user just needs to affirm
+- Simple Q&A with no follow-up needed
+- Session is wrapping up
+- The last user message was a direct instruction that was completed
 
-STRUCTURE:
-- Generate 1-${ctx.maxQuestions} questions, each with 2-${ctx.maxOptions} options
-- type is ALWAYS "multi" — user checks one or several
-- First option = most natural next step
-- description field: file paths, error counts, token costs, or why this option matters
-- The user can add freeform notes via the UI — don't generate text-only questions
+DEPTH CALIBRATION (from session context):
+- Early session (turns 1-2): broader questions, more options, help set direction
+- Mid session (turns 3-8): focused questions, specific to what just happened
+- Deep session (9+): minimal questions, only when genuinely ambiguous
+- If the user gives short answers or says "just do it": skip or 1 question max
+
+GROUNDING (critical \u2014 no generic options ever):
+- Every option MUST name a specific artifact: file path, function, test suite, error message
+- "src/auth/login.ts" not "the auth module". "3 failing vitest specs" not "the tests"
+- If UnresolvedQuestions exist \u2014 turn them into options verbatim
+- If a skill from the ecosystem matches the current work \u2014 include it as an option
+- If multiple projects listed \u2014 include cross-project option when relevant
+- BANNED: "Continue working", "Fix issues", "Improve code", "Look into it"
 
 OPTION QUALITY:
-- Start with an action verb: "Fix", "Add", "Run", "Refactor", "Deploy", "Use"
-- Include the specific target: file, function, test suite, endpoint
-- Be direct — these are developer instructions, not marketing copy
-- 3-5 options per question is the sweet spot — enough choice, not overwhelming`;
+- Start with action verb: Fix, Add, Run, Refactor, Deploy, Use, Test, Ship
+- Include specific target: the file, the function, the test, the endpoint
+- 3-5 options per question (cognitive load sweet spot from NN/g research)
+- First option = most likely next step
+- description: file path, error count, why this matters \u2014 max 60 chars
+- ${ctx.maxQuestions} questions max, ${ctx.maxOptions} options max per question, type always "multi"`;
 }
 //# sourceMappingURL=interview-template.js.map

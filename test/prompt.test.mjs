@@ -68,8 +68,8 @@ describe("renderQuizPrompt", () => {
     const ctx = buildQuizPromptContext(turn, defaultConfig);
     const prompt = renderQuizPrompt(ctx);
     assert.ok(prompt.includes("GROUNDING"));
-    assert.ok(prompt.includes("MUST reference specific artifacts"));
-    assert.ok(prompt.includes("NEVER generate generic options"));
+    assert.ok(prompt.includes("MUST name a specific artifact"));
+    assert.ok(prompt.includes("BANNED"));
   });
 
   it("includes custom instruction when set", () => {

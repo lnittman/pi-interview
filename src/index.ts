@@ -32,6 +32,7 @@ import { DEFAULT_CONFIG } from "./core/types.js";
 import { getDemoTurn, listDemoScenarios } from "./core/demo.js";
 import {
   buildAgentContext,
+  extractSessionDepth,
   type AgentContext,
 } from "./core/agent-context.js";
 
@@ -157,6 +158,12 @@ export default function interview(pi: ExtensionAPI) {
 
     try {
       await ensureContexts();
+      // Inject session depth from live session
+      if (agentCtx && context.sessionManager) {
+        agentCtx.sessionDepth = extractSessionDepth(
+          context.sessionManager.getEntries() as any[]
+        );
+      }
       const promptContext = buildQuizPromptContext(turn, config, projectSnapshot, agentCtx);
 
       context.ui.setWidget("interview-loading", [
