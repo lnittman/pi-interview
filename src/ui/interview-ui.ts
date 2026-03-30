@@ -164,8 +164,8 @@ export async function showInterviewUI(
         return;
       }
 
-      // ── Tab: next question ──
-      if (matchesKey(data, Key.tab) || data === "l") {
+      // ── h/l or Shift+Tab/L2: switch question ──
+      if (data === "l" || matchesKey(data, Key.right)) {
         if (questions.length > 1) {
           currentQ = (currentQ + 1) % questions.length;
           optionCursor = 0;
@@ -173,7 +173,7 @@ export async function showInterviewUI(
         }
         return;
       }
-      if (matchesKey(data, Key.shift("tab")) || data === "h") {
+      if (data === "h" || matchesKey(data, Key.left) || matchesKey(data, Key.shift("tab"))) {
         if (questions.length > 1) {
           currentQ = (currentQ - 1 + questions.length) % questions.length;
           optionCursor = 0;
@@ -182,8 +182,10 @@ export async function showInterviewUI(
         return;
       }
 
-      // ── Space or Alt+. (R1): toggle checkbox ──
-      if (matchesKey(data, Key.space) || data === "\x1b.") {
+      // ── Enter / Space / Alt+. (R1): toggle checkbox ──
+      // Cross (×) on DualSense sends Enter. Space on keyboard.
+      // All three toggle the current option.
+      if (matchesKey(data, Key.enter) || matchesKey(data, Key.space) || data === "\x1b.") {
         const sel = selections.get(q().id)!;
         if (sel.has(optionCursor)) sel.delete(optionCursor);
         else sel.add(optionCursor);
@@ -191,8 +193,9 @@ export async function showInterviewUI(
         return;
       }
 
-      // ── Enter: confirm and advance ──
-      if (matchesKey(data, Key.enter)) {
+      // ── Tab / R2: confirm and advance ──
+      // Tab on keyboard, R2 on DualSense.
+      if (matchesKey(data, Key.tab)) {
         const sel = selections.get(q().id)!;
         if (sel.size === 0) sel.add(optionCursor);
         advance();
@@ -291,9 +294,9 @@ export async function showInterviewUI(
       if (!noteMode) {
         const hints: string[] = [];
         hints.push("j/k nav");
-        hints.push("Space/R1 toggle");
-        hints.push("Enter confirm");
-        hints.push("n/L1 note");
+        hints.push("Enter/Space toggle");
+        hints.push("Tab confirm");
+        hints.push("n note");
         if (questions.length > 1) hints.push("h/l question");
         hints.push("q quit");
         add(theme.fg("dim", `  ${hints.join(" . ")}`));
