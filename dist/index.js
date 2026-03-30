@@ -349,7 +349,21 @@ export default function interview(pi) {
             c.ui.notify("/quiz [ask | status | reset | config <key> <value>]", "info");
         },
     });
-    // No keyboard shortcut — Ctrl+I = Tab (0x09) which breaks vim/tmux.
-    // Use /interview command or auto-trigger instead.
+    // Ctrl+I shortcut. Safe with Kitty protocol (CSI-u) which sends
+    // ctrl+i as [105;5u, distinct from Tab ([9u / 0x09).
+    // Requires terminal + tmux with extended-keys=csi-u.
+    pi.registerShortcut("ctrl+i", {
+        description: "Trigger interview",
+        handler: async (c) => {
+            ctx = c;
+            const turn = lastTurn ?? getTurnFromBranch(c);
+            if (!turn) {
+                c.ui.notify("No conversation context", "warning");
+                return;
+            }
+            const e = ++epoch;
+            await runQuiz(turn, c, e, true);
+        },
+    });
 }
 //# sourceMappingURL=index.js.map
