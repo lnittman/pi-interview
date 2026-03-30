@@ -118,8 +118,12 @@ export async function showInterviewUI(
           refresh();
           return;
         }
-        if (data.length >= 1 && data.charCodeAt(0) >= 32 && data.charCodeAt(0) < 127) {
-          noteText += data;
+        // Accept printable text including paste (multi-char) and Unicode.
+        // Filter out control chars (0x00-0x1f) except we already handled
+        // Enter/Esc/Backspace above. Tab in note mode inserts nothing.
+        const printable = data.replace(/[\x00-\x1f]/g, "");
+        if (printable.length > 0) {
+          noteText += printable;
           refresh();
           return;
         }
@@ -264,11 +268,28 @@ export async function showInterviewUI(
       blank();
       const existingNote = notes.get(question.id);
       if (noteMode) {
-        const display = noteText || theme.fg("dim", "type a note...");
-        add(`  note: ${display}_`);
-        add(theme.fg("dim", "  Enter save . Esc cancel"));
+        const prefix = "  note: ";
+        const cursor = "_";
+        const text = noteText || theme.fg("dim", "type a note...");
+        // Wrap note text to fit terminal width
+        const maxNoteW = w - prefix.length - 1;
+        if (maxNoteW > 10) {
+          const noteLines = wrapTextWithAnsi(text + cursor, maxNoteW);
+          for (let nl = 0; nl < noteLines.length; nl++) {
+            add(nl === 0 ? `${prefix}${noteLines[nl]}` : `  ${" ".repeat(prefix.length - 2)}${noteLines[nl]}`);
+          }
+        } else {
+          add(`${prefix}${text}${cursor}`);
+        }
+        add(theme.fg("dim", "  Enter save . Esc save"));
       } else if (existingNote) {
-        add(`  ${theme.fg("dim", "note: " + existingNote)}`);
+        // Wrap existing note too
+        const noteLines = wrapTextWithAnsi(existingNote, w - 8);
+        for (let nl = 0; nl < noteLines.length; nl++) {
+          add(nl === 0
+            ? `  ${theme.fg("dim", "note: " + noteLines[nl])}`
+            : `        ${theme.fg("dim", noteLines[nl])}`);
+        }
       }
 
       // Hints
