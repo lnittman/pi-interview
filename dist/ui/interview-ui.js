@@ -246,34 +246,36 @@ export async function showInterviewUI(ctx, questions, config) {
             blank();
             const existingNote = notes.get(question.id);
             if (noteMode) {
-                // Active note input — bordered for clarity
-                const innerW = w - 6;
-                add(`  ${theme.fg("accent", "\u250c" + "\u2500".repeat(Math.max(1, innerW)) + "\u2510")}`);
+                // Active note input — filled background, no borders
+                const inputW = w - 4;
                 const text = noteText;
-                const placeholder = theme.fg("dim", "type a note...");
                 if (text.length === 0) {
-                    // Show placeholder with cursor
-                    add(`  ${theme.fg("accent", "\u2502")} ${placeholder}${theme.fg("accent", "\u2588")}${" ".repeat(Math.max(0, innerW - 17))}${theme.fg("accent", "\u2502")}`);
+                    // Placeholder + cursor on filled background
+                    const fill = theme.bg("selectedBg", theme.fg("muted", " type a note..." + " ".repeat(Math.max(0, inputW - 16))));
+                    add(`  ${fill}`);
                 }
                 else {
-                    // Wrap note text inside the box
-                    const noteLines = wrapTextWithAnsi(text, innerW - 2);
+                    // Wrap text on filled background
+                    const noteLines = wrapTextWithAnsi(text, inputW - 2);
                     for (let nl = 0; nl < noteLines.length; nl++) {
                         const isLast = nl === noteLines.length - 1;
-                        const cursor = isLast ? theme.fg("accent", "\u2588") : "";
-                        add(`  ${theme.fg("accent", "\u2502")} ${noteLines[nl]}${cursor} ${theme.fg("accent", "\u2502")}`);
+                        const lineText = noteLines[nl] + (isLast ? "_" : "");
+                        const pad = " ".repeat(Math.max(0, inputW - lineText.length - 1));
+                        add(`  ${theme.bg("selectedBg", " " + lineText + pad)}`);
                     }
                 }
-                add(`  ${theme.fg("accent", "\u2514" + "\u2500".repeat(Math.max(1, innerW)) + "\u2518")}`);
-                add(theme.fg("dim", `  Enter save . Esc save . Backspace delete`));
+                add(theme.fg("dim", `  Enter save . Esc save`));
             }
             else if (existingNote) {
-                // Saved note — subtle display
-                add(`  ${theme.fg("dim", "\u250a")} ${theme.fg("muted", existingNote)}`);
+                // Saved note — subtle filled display
+                const noteLines = wrapTextWithAnsi(existingNote, w - 6);
+                for (let nl = 0; nl < noteLines.length; nl++) {
+                    add(`  ${theme.fg("muted", noteLines[nl])}`);
+                }
             }
             else {
-                // No note yet — hint
-                add(theme.fg("dim", `  i/Esc to add a note`));
+                // No note — minimal hint
+                add(theme.fg("dim", `  i to add a note`));
             }
             // ── Hints ──
             blank();
