@@ -104,12 +104,21 @@ export async function showInterviewUI(ctx, questions, config) {
                     refresh();
                     return;
                 }
-                // Accept printable text including paste (multi-char) and Unicode.
-                // Strip control chars and bracketed paste markers.
+                // Swallow arrow keys, function keys, and other escape sequences
+                // so they don't leak as visible text into the note
+                if (matchesKey(data, Key.up) || matchesKey(data, Key.down) ||
+                    matchesKey(data, Key.left) || matchesKey(data, Key.right) ||
+                    matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab"))) {
+                    return; // consume silently
+                }
+                // Strip all escape sequences, control chars, and bracketed paste markers.
+                // \x1b[...letter covers arrows, CSI sequences, function keys
                 const printable = data
-                    .replace(/\x1b\[20[01]~/g, "")
-                    .replace(/\[20[01]~/g, "")
-                    .replace(/[\x00-\x1f\x7f]/g, "");
+                    .replace(/\x1b\[[0-9;]*[A-Za-z~]/g, "") // CSI sequences (arrows, F-keys, etc.)
+                    .replace(/\x1b\[20[01]~/g, "") // bracketed paste
+                    .replace(/\x1b[^[]/g, "") // bare Alt+key sequences
+                    .replace(/\x1b$/g, "") // trailing bare ESC
+                    .replace(/[\x00-\x1f\x7f]/g, ""); // control chars + DEL
                 if (printable.length > 0) {
                     noteText += printable;
                     refresh();
