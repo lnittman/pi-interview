@@ -6,14 +6,12 @@
  *   Enter/Space       → toggle checkbox
  *   ≤ (Option+,)      → toggle checkbox (alt)
  *   Tab               → confirm & advance
- *   i                 → notes mode (vim insert)
- *   ≥ (Option+.)      → notes mode (alt)
+ *   i or Esc          → notes mode (Esc enters notes, second Esc saves)
+ *   ≤ (Option+,)      → notes mode (alt)
+ *   ≥ (Option+.)      → toggle checkbox (alt)
  *   h/l or ←→         → switch question
  *   q                 → dismiss
  *   1-9               → quick-toggle option
- *
- * Escape is intentionally a no-op to prevent accidental dismiss
- * from terminal escape sequences and mode-switching keybinds.
  */
 import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, } from "@mariozechner/pi-tui";
 import { buildSubmission } from "../prompts/compose-template.js";
@@ -114,17 +112,15 @@ export async function showInterviewUI(ctx, questions, config) {
                 return;
             }
             // ── Dismiss: q only ──
-            // Escape is a no-op — terminal escape sequences cause accidental
-            // dismissals. Only 'q' reliably dismisses across all input methods.
             if (data === "q") {
                 finish(true);
                 return;
             }
-            if (matchesKey(data, Key.escape)) {
-                return; // swallow
-            }
-            // ── Notes mode: 'i' (vim insert) or ≤ (Option+,) ──
-            if (data === "i" || data === "\u2264") {
+            // ── Notes mode: i, Escape, or ≤ (Option+,) ──
+            // Escape enters notes mode instead of dismissing. This makes
+            // terminals that send Esc on certain keys (or double-Esc)
+            // toggle in/out of notes naturally: first Esc enters, second saves.
+            if (data === "i" || data === "\u2264" || matchesKey(data, Key.escape)) {
                 noteMode = true;
                 noteText = notes.get(q().id) || "";
                 refresh();
@@ -254,7 +250,7 @@ export async function showInterviewUI(ctx, questions, config) {
             // Hints
             blank();
             if (!noteMode) {
-                const h = ["j/k nav", "Enter toggle", "Tab confirm", "i note"];
+                const h = ["j/k nav", "Enter toggle", "Tab confirm", "i/Esc note"];
                 if (questions.length > 1)
                     h.push("h/l switch");
                 h.push("q quit");
