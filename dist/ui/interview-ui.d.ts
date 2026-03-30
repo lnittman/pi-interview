@@ -1,12 +1,18 @@
 /**
- * Interview UI — based on the proven ask-user extension patterns.
+ * Interview UI — multi-select + notes, controller-ergonomic.
  *
- * - ALL questions rendered as multi-select (checkboxes, not radio)
- * - Space toggles selection with visual ☑/☐ feedback
- * - Enter confirms and advances
- * - 'n' key opens notes input for any question
- * - Tab navigates between questions
- * - matchesKey/Key for cross-terminal compat
+ * Key design for DualSense compatibility:
+ *   D-pad up/down → arrow keys → navigate options (works via karabiner rule 04)
+ *   Cross/X (button1) → Enter → confirm selection
+ *   Circle (button2) → Escape → dismiss (but we require DOUBLE escape to cancel,
+ *     so a single triangle press in nvim terminal mode doesn't accidentally dismiss)
+ *   Space → toggle checkbox
+ *   'n' → notes mode (safe — not mapped to any face button)
+ *   Number keys → quick-toggle
+ *   Tab → next question (L1/R1 in some configs)
+ *
+ * No coupling to any specific controller config — just robust key handling
+ * that doesn't break under common terminal escape sequences.
  */
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { QuizQuestion, QuizSubmission, QuizConfig } from "../core/types.js";

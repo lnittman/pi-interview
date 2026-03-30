@@ -87,7 +87,7 @@ export class QuizModelClient {
         const prompt = renderQuizPrompt(promptContext);
         try {
             const response = await this.completeFn(model, {
-                systemPrompt: "You generate multiple-choice interview questions for a coding agent session. Return ONLY valid JSON. Every question MUST have options grounded in specific files, errors, and tool outputs from the context — never generic options. No text-only questions.",
+                systemPrompt: "You generate multi-select interview questions for a coding agent session. The user sees checkboxes and can pick multiple options plus add notes. Return ONLY valid JSON. Ground every option in specific files, errors, tools, and skills from the context. Never generic.",
                 messages: [
                     {
                         role: "user",

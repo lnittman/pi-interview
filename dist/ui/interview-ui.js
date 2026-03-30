@@ -1,12 +1,18 @@
 /**
- * Interview UI — based on the proven ask-user extension patterns.
+ * Interview UI — multi-select + notes, controller-ergonomic.
  *
- * - ALL questions rendered as multi-select (checkboxes, not radio)
- * - Space toggles selection with visual ☑/☐ feedback
- * - Enter confirms and advances
- * - 'n' key opens notes input for any question
- * - Tab navigates between questions
- * - matchesKey/Key for cross-terminal compat
+ * Key design for DualSense compatibility:
+ *   D-pad up/down → arrow keys → navigate options (works via karabiner rule 04)
+ *   Cross/X (button1) → Enter → confirm selection
+ *   Circle (button2) → Escape → dismiss (but we require DOUBLE escape to cancel,
+ *     so a single triangle press in nvim terminal mode doesn't accidentally dismiss)
+ *   Space → toggle checkbox
+ *   'n' → notes mode (safe — not mapped to any face button)
+ *   Number keys → quick-toggle
+ *   Tab → next question (L1/R1 in some configs)
+ *
+ * No coupling to any specific controller config — just robust key handling
+ * that doesn't break under common terminal escape sequences.
  */
 import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, } from "@mariozechner/pi-tui";
 import { buildSubmission } from "../prompts/compose-template.js";
@@ -21,7 +27,8 @@ export async function showInterviewUI(ctx, questions, config) {
         let noteMode = false;
         let noteText = "";
         let cachedLines;
-        // Multi-select state: track toggled options per question
+        let pendingEscape = false;
+        let escapeTimer;
         const selections = new Map();
         const notes = new Map();
         for (const q of questions) {
@@ -35,6 +42,8 @@ export async function showInterviewUI(ctx, questions, config) {
             return questions[currentQ];
         }
         function finish(cancelled) {
+            if (escapeTimer)
+                clearTimeout(escapeTimer);
             const allAnswers = questions.map((question) => {
                 const sel = selections.get(question.id);
                 const selectedLabels = sel && sel.size > 0
@@ -55,7 +64,6 @@ export async function showInterviewUI(ctx, questions, config) {
                 finish(false);
                 return;
             }
-            // Move to next unanswered, or finish
             for (let i = currentQ + 1; i < questions.length; i++) {
                 const sel = selections.get(questions[i].id);
                 if (!sel || sel.size === 0) {
@@ -65,7 +73,6 @@ export async function showInterviewUI(ctx, questions, config) {
                     return;
                 }
             }
-            // Check earlier unanswered
             for (let i = 0; i < currentQ; i++) {
                 const sel = selections.get(questions[i].id);
                 if (!sel || sel.size === 0) {
@@ -75,26 +82,17 @@ export async function showInterviewUI(ctx, questions, config) {
                     return;
                 }
             }
-            // All have selections
             finish(false);
         }
         function handleInput(data) {
             // ── Note mode ──
             if (noteMode) {
-                if (matchesKey(data, Key.escape)) {
-                    // Save and exit note mode
+                if (matchesKey(data, Key.escape) || matchesKey(data, Key.enter)) {
                     const trimmed = noteText.trim();
                     if (trimmed)
                         notes.set(q().id, trimmed);
                     noteMode = false;
-                    refresh();
-                    return;
-                }
-                if (matchesKey(data, Key.enter)) {
-                    const trimmed = noteText.trim();
-                    if (trimmed)
-                        notes.set(q().id, trimmed);
-                    noteMode = false;
+                    pendingEscape = false;
                     refresh();
                     return;
                 }
@@ -110,31 +108,48 @@ export async function showInterviewUI(ctx, questions, config) {
                 }
                 return;
             }
-            // ── Escape: dismiss ──
+            // ── Double-escape to dismiss ──
+            // Single Escape is too easy to hit accidentally (e.g. DualSense triangle
+            // in nvim terminal mode sends Esc+Esc). Require two Escapes within 400ms.
             if (matchesKey(data, Key.escape)) {
-                finish(true);
+                if (pendingEscape) {
+                    if (escapeTimer)
+                        clearTimeout(escapeTimer);
+                    pendingEscape = false;
+                    finish(true);
+                    return;
+                }
+                pendingEscape = true;
+                escapeTimer = setTimeout(() => { pendingEscape = false; }, 400);
+                refresh();
                 return;
             }
-            // ── 'n' key: toggle notes ──
-            if (data === "i") {
+            // Any non-escape key clears the pending escape
+            if (pendingEscape) {
+                pendingEscape = false;
+                if (escapeTimer)
+                    clearTimeout(escapeTimer);
+            }
+            // ── 'n' key: notes mode ──
+            if (data === "n") {
                 noteMode = true;
                 noteText = notes.get(q().id) || "";
                 refresh();
                 return;
             }
-            // ── Arrow navigation ──
-            if (matchesKey(data, Key.up)) {
+            // ── Arrow / vim navigation ──
+            if (matchesKey(data, Key.up) || data === "k") {
                 optionCursor = Math.max(0, optionCursor - 1);
                 refresh();
                 return;
             }
-            if (matchesKey(data, Key.down)) {
+            if (matchesKey(data, Key.down) || data === "j") {
                 optionCursor = Math.min(q().options.length - 1, optionCursor + 1);
                 refresh();
                 return;
             }
             // ── Tab: next question ──
-            if (matchesKey(data, Key.tab)) {
+            if (matchesKey(data, Key.tab) || data === "l") {
                 if (questions.length > 1) {
                     currentQ = (currentQ + 1) % questions.length;
                     optionCursor = 0;
@@ -142,7 +157,7 @@ export async function showInterviewUI(ctx, questions, config) {
                 }
                 return;
             }
-            if (matchesKey(data, Key.shift("tab"))) {
+            if (matchesKey(data, Key.shift("tab")) || data === "h") {
                 if (questions.length > 1) {
                     currentQ = (currentQ - 1 + questions.length) % questions.length;
                     optionCursor = 0;
@@ -153,27 +168,22 @@ export async function showInterviewUI(ctx, questions, config) {
             // ── Space: toggle checkbox ──
             if (matchesKey(data, Key.space)) {
                 const sel = selections.get(q().id);
-                if (sel.has(optionCursor)) {
+                if (sel.has(optionCursor))
                     sel.delete(optionCursor);
-                }
-                else {
+                else
                     sel.add(optionCursor);
-                }
                 refresh();
                 return;
             }
-            // ── Enter: confirm selection and advance ──
+            // ── Enter: confirm and advance ──
             if (matchesKey(data, Key.enter)) {
                 const sel = selections.get(q().id);
-                // If nothing selected, select current cursor item first
-                if (sel.size === 0) {
+                if (sel.size === 0)
                     sel.add(optionCursor);
-                    refresh();
-                }
                 advance();
                 return;
             }
-            // ── Number keys: toggle specific option ──
+            // ── Number keys: quick-toggle ──
             if (data.length === 1 && data >= "1" && data <= "9") {
                 const num = parseInt(data, 10) - 1;
                 if (num < q().options.length) {
@@ -194,32 +204,28 @@ export async function showInterviewUI(ctx, questions, config) {
             const w = Math.max(20, width);
             const question = q();
             const sel = selections.get(question.id);
-            // Helper: every line MUST be truncated to width to prevent TUI crash
             const add = (s) => lines.push(truncateToWidth(s, w));
             const blank = () => lines.push("");
-            // Top border
             add(theme.fg("accent", "─".repeat(w)));
             // Progress dots
             if (questions.length > 1) {
                 const dots = questions.map((qn, i) => {
-                    const hasSelection = (selections.get(qn.id)?.size ?? 0) > 0;
+                    const has = (selections.get(qn.id)?.size ?? 0) > 0;
                     const active = i === currentQ;
-                    const dot = hasSelection ? "●" : "○";
-                    const styled = active ? theme.fg("accent", dot) : theme.fg(hasSelection ? "success" : "dim", dot);
-                    return styled;
+                    const dot = has ? "●" : "○";
+                    return active ? theme.fg("accent", dot) : theme.fg(has ? "success" : "dim", dot);
                 }).join(" ");
-                add(` ${theme.fg("accent", "✦")} ${dots}`);
+                add(` ${theme.fg("accent", "*")} ${dots}`);
             }
             else {
-                add(` ${theme.fg("accent", "✦")}`);
+                add(` ${theme.fg("accent", "*")}`);
             }
-            // Question text
+            // Question
             const qLines = wrapTextWithAnsi(theme.bold(question.text), w - 2);
-            for (const ql of qLines) {
+            for (const ql of qLines)
                 add(` ${ql}`);
-            }
             blank();
-            // Options with checkboxes
+            // Options
             const opts = question.options;
             for (let i = 0; i < opts.length; i++) {
                 const opt = opts[i];
@@ -240,18 +246,16 @@ export async function showInterviewUI(ctx, questions, config) {
                 }
                 if (opt.description) {
                     const descLines = wrapTextWithAnsi(opt.description, w - 12);
-                    for (const dl of descLines) {
+                    for (const dl of descLines)
                         add(`          ${theme.fg("dim", dl)}`);
-                    }
                 }
             }
-            // Selection count
+            // Selection summary
             if (sel.size > 0) {
                 blank();
-                const selectedLabels = [...sel].sort((a, b) => a - b).map((i) => opts[i]?.label).filter(Boolean);
                 add(`  ${theme.fg("success", `${sel.size} selected`)}`);
             }
-            // Notes section
+            // Notes
             blank();
             const existingNote = notes.get(question.id);
             if (noteMode) {
@@ -262,16 +266,21 @@ export async function showInterviewUI(ctx, questions, config) {
             else if (existingNote) {
                 add(`  ${theme.fg("dim", "note: " + existingNote)}`);
             }
-            // Help bar
+            // Help + escape state
             blank();
             if (!noteMode) {
-                const hints = ["up/dn", "Space toggle", "Enter confirm", "i note"];
+                const hints = [];
+                hints.push("j/k nav");
+                hints.push("Space toggle");
+                hints.push("Enter confirm");
+                hints.push("n note");
                 if (questions.length > 1)
-                    hints.push("Tab next");
-                hints.push("Esc dismiss");
+                    hints.push("h/l question");
+                hints.push(pendingEscape
+                    ? theme.fg("warning", "Esc again to dismiss")
+                    : "Esc Esc dismiss");
                 add(theme.fg("dim", `  ${hints.join(" . ")}`));
             }
-            // Bottom border
             add(theme.fg("accent", "─".repeat(w)));
             cachedLines = lines;
             return lines;

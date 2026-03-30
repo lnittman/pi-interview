@@ -9,6 +9,7 @@ import { buildTurnContext, buildTurnContextFromBranch } from "./core/signals.js"
 import { buildQuizPromptContext } from "./prompts/interview-template.js";
 import { QuizModelClient } from "./adapters/model-client.js";
 import { showInterviewUI } from "./ui/interview-ui.js";
+import { showSettingsUI } from "./ui/settings-ui.js";
 import { emptyState, recordQuizCall, shouldBackOff, formatUsageStatus, } from "./core/state.js";
 import { buildProjectSnapshot, } from "./core/project-context.js";
 import { DEFAULT_CONFIG } from "./core/types.js";
@@ -54,7 +55,7 @@ export default function interview(pi) {
                 .catch(() => { }));
         }
         if (!agentCtx) {
-            promises.push(buildAgentContext()
+            promises.push(buildAgentContext(ctx?.cwd)
                 .then((a) => { agentCtx = a; })
                 .catch(() => { }));
         }
@@ -200,7 +201,7 @@ export default function interview(pi) {
     });
     // ─── Commands ─────────────────────────────────────────────────────────
     pi.registerCommand("interview", {
-        description: "interview: ask | demo [scenario] | status | reset | config <key> <value>",
+        description: "interview: ask | settings | demo [scenario] | status | reset | config <key> <value>",
         handler: async (args, c) => {
             ctx = c;
             const [sub, ...rest] = args.trim().split(/\s+/);
@@ -223,6 +224,16 @@ export default function interview(pi) {
                 const turn = getDemoTurn(scenario);
                 const e = ++epoch;
                 await runQuiz(turn, c, e, true);
+                return;
+            }
+            if (sub === "settings") {
+                const allModels = c.modelRegistry?.getAll?.() ?? [];
+                const modelRefs = allModels.map((m) => `${m.provider}/${m.id}`);
+                const result = await showSettingsUI(c, config, modelRefs);
+                if (!result.cancelled && Object.keys(result.config).length > 0) {
+                    Object.assign(config, result.config);
+                    c.ui.notify(`interview: ${Object.keys(result.config).join(", ")} updated`, "info");
+                }
                 return;
             }
             if (sub === "status") {

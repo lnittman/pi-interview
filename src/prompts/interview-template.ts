@@ -1,8 +1,11 @@
 /**
- * Quiz prompt template.
+ * Interview prompt template.
  *
- * Every question MUST be multiple choice.
- * No "text" type questions — the UI handles freeform via "Type something else..." option.
+ * Informed by:
+ * - Saya's signal calibration (directive types: inform/clarify/help)
+ * - Ask-deep's question archetypes (clarification/preference/scope/edge-case)
+ * - Agents CLI's HIL workflow patterns (structured questions with typed answers)
+ * - Ask-user extension's multi-select + notes UX
  */
 
 import type { TurnContext, QuizConfig } from "../core/types.js";
@@ -58,9 +61,7 @@ export function buildQuizPromptContext(
 }
 
 export function renderQuizPrompt(ctx: QuizPromptContext): string {
-  return `You generate multiple-choice questions to help a developer decide what to instruct their coding agent next.
-
-EVERY question MUST have concrete options. No free-text questions.
+  return `You generate interview questions to help a developer decide what to instruct their coding agent next. The user sees these as multi-select checkboxes — they can pick one or several options, and add freeform notes.
 
 Return ONLY valid JSON:
 {
@@ -70,15 +71,17 @@ Return ONLY valid JSON:
       "text": "Short question (under 80 chars)",
       "type": "multi",
       "options": [
-        { "label": "Concrete action (under 60 chars)", "description": "optional context" }
+        { "label": "Concrete action (under 60 chars)", "description": "brief context" }
       ]
     }
   ],
   "skipped": false
 }
 
-If the next step is obvious (e.g. agent proposed something clear), return:
-{ "questions": [], "skipped": true, "skipReason": "brief reason" }
+Skip (return { "questions": [], "skipped": true, "skipReason": "..." }) when:
+- Agent proposed a clear next step and user just needs to affirm
+- Last exchange was a simple Q&A
+- Conversation is wrapping up
 
 ── Context ──
 ${ctx.projectContext ? `\nProject:\n${ctx.projectContext}\n` : ""}${ctx.agentContext ? `\nAgent Ecosystem:\n${ctx.agentContext}\n` : ""}
@@ -94,35 +97,44 @@ ${ctx.toolSignals.length > 0 ? ctx.toolSignals.map((s) => `- ${s}`).join("\n") :
 TouchedFiles:
 ${ctx.touchedFiles.length > 0 ? ctx.touchedFiles.map((f) => `- ${f}`).join("\n") : "(none)"}
 
-UnresolvedQuestions:
+UnresolvedQuestions (from assistant):
 ${ctx.unresolvedQuestions.length > 0 ? ctx.unresolvedQuestions.map((q) => `- ${q}`).join("\n") : "(none)"}
 
 LatestAssistantMessage:
 \`\`\`
 ${ctx.assistantText || "(empty)"}
 \`\`\`
-${ctx.customInstruction.trim() ? `\nPreference:\n${ctx.customInstruction.trim()}` : ""}
+${ctx.customInstruction.trim() ? `\nUserPreference:\n${ctx.customInstruction.trim()}` : ""}
 
-── Rules ──
+── Question Design ──
+
+QUESTION ARCHETYPES (pick the best fit for the situation):
+- Direction: "What should we focus on next?" — when a task completed and multiple paths exist
+- Scope: "What's in scope for this change?" — when the task is broad or expanding
+- Recovery: "How should we handle the failures?" — when errors occurred
+- Trade-off: "Which approach do you prefer?" — when there are valid alternatives
+- Delegation: "Should we use a skill for this?" — when a skill/agent matches the work
+- Validation: "Does this look right?" — when confirming before a destructive/irreversible step
 
 GROUNDING (critical):
-- Every option label MUST reference specific artifacts from the context above
-- If TouchedFiles has "src/auth/login.ts", options should name that file, not say "the auth module"
-- If ToolSignals has "bash(npm test):error", options should reference the test failure specifically
-- If UnresolvedQuestions exist, turn them into structured options verbatim
-- NEVER generate generic options like "Continue working", "Fix issues", "Improve code"
-- Bad: "Add error handling" — Good: "Add try/catch to parseConfig in src/config/loader.ts"
-- Bad: "Run tests" — Good: "Re-run the 3 failing vitest specs in packages/backend"
+- Every option MUST reference specific artifacts from the context above
+- Name actual files, not abstractions: "src/auth/login.ts" not "the auth module"
+- Name actual errors: "the 3 failing vitest specs" not "fix the tests"
+- If UnresolvedQuestions exist, turn them into options verbatim
+- If the Agent Ecosystem lists relevant skills, include "Use [skill-name] for this" as an option
+- If multiple projects are listed, include cross-project options when relevant
+- NEVER generate generic options: "Continue working", "Fix issues", "Improve code"
 
 STRUCTURE:
 - Generate 1-${ctx.maxQuestions} questions, each with 2-${ctx.maxOptions} options
-- type is ALWAYS "multi" — user can check one or several options
-- First option = most natural/likely next step
-- description field: use for file paths, error counts, or other concrete context
-- User can also add freeform notes via the UI — don't generate text-input questions
+- type is ALWAYS "multi" — user checks one or several
+- First option = most natural next step
+- description field: file paths, error counts, token costs, or why this option matters
+- The user can add freeform notes via the UI — don't generate text-only questions
 
-SKIP when:
-- Agent proposed a clear next step and user just needs to affirm
-- Conversation is wrapping up naturally
-- The last exchange was a simple Q&A with no follow-up implied`;
+OPTION QUALITY:
+- Start with an action verb: "Fix", "Add", "Run", "Refactor", "Deploy", "Use"
+- Include the specific target: file, function, test suite, endpoint
+- Be direct — these are developer instructions, not marketing copy
+- 3-5 options per question is the sweet spot — enough choice, not overwhelming`;
 }

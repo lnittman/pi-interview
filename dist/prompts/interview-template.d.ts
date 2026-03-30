@@ -1,8 +1,11 @@
 /**
- * Quiz prompt template.
+ * Interview prompt template.
  *
- * Every question MUST be multiple choice.
- * No "text" type questions — the UI handles freeform via "Type something else..." option.
+ * Informed by:
+ * - Saya's signal calibration (directive types: inform/clarify/help)
+ * - Ask-deep's question archetypes (clarification/preference/scope/edge-case)
+ * - Agents CLI's HIL workflow patterns (structured questions with typed answers)
+ * - Ask-user extension's multi-select + notes UX
  */
 import type { TurnContext, QuizConfig } from "../core/types.js";
 import type { ProjectSnapshot } from "../core/project-context.js";
