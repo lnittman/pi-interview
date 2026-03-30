@@ -1,20 +1,31 @@
 /**
  * Interview UI — multi-select + notes.
  *
- * Key mappings:
+ * Selection mode:
  *   j/k or ↑↓         → navigate options
  *   Enter/Space        → toggle checkbox
- *   ≤ (Option+,)       → toggle checkbox (alt)
  *   Tab                → confirm & advance
- *   i or Esc           → notes mode (Esc enters notes, second Esc saves)
- *   ≥ (Option+.)       → notes mode (alt)
+ *   i or Esc           → enter notes mode
  *   h/l or ←→          → switch question
  *   q                  → dismiss
  *   1-9                → quick-toggle option
+ *
+ * Notes mode (full text editing via pi-tui Input):
+ *   ←→                 → move cursor
+ *   Ctrl+A / Home      → start of line
+ *   Ctrl+E / End       → end of line
+ *   Alt+B / Alt+F      → word backward/forward
+ *   Ctrl+K             → kill to end of line
+ *   Ctrl+U             → kill to start of line
+ *   Ctrl+W / Alt+Bksp  → delete word backward
+ *   Ctrl+Y             → yank (paste from kill ring)
+ *   Ctrl+Z             → undo
+ *   Enter or Esc       → save note and return to selection
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
+  Input,
   Key,
   matchesKey,
   truncateToWidth,
@@ -43,13 +54,29 @@ export async function showInterviewUI(
     let currentQ = 0;
     let optionCursor = 0;
     let noteMode = false;
-    let noteText = "";
     let cachedLines: string[] | undefined;
 
     const selections = new Map<string, Set<number>>();
     const notes = new Map<string, string>();
     for (const q of questions) {
       selections.set(q.id, new Set());
+    }
+
+    // Use pi-tui's Input component for full text editing in notes mode
+    const noteInput = new Input();
+    noteInput.onSubmit = () => {
+      saveNote();
+    };
+    noteInput.onEscape = () => {
+      saveNote();
+    };
+
+    function saveNote() {
+      const val = noteInput.getValue().trim();
+      if (val) notes.set(q().id, val);
+      else notes.delete(q().id);
+      noteMode = false;
+      refresh();
     }
 
     function refresh() {
@@ -99,43 +126,10 @@ export async function showInterviewUI(
     }
 
     function handleInput(data: string): void {
-      // ── Note mode ──
+      // ── Notes mode: delegate to pi-tui Input ──
       if (noteMode) {
-        if (matchesKey(data, Key.escape) || matchesKey(data, Key.enter)) {
-          const trimmed = noteText.trim();
-          if (trimmed) notes.set(q().id, trimmed);
-          else notes.delete(q().id);
-          noteMode = false;
-          refresh();
-          return;
-        }
-        if (matchesKey(data, Key.backspace)) {
-          noteText = noteText.slice(0, -1);
-          refresh();
-          return;
-        }
-        // Swallow arrow keys, function keys, and other escape sequences
-        // so they don't leak as visible text into the note
-        if (matchesKey(data, Key.up) || matchesKey(data, Key.down) ||
-            matchesKey(data, Key.left) || matchesKey(data, Key.right) ||
-            matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab"))) {
-          return; // consume silently
-        }
-        // Strip ALL terminal escape sequences before accepting printable text.
-        // Covers: CSI (arrows, F-keys), CSI-u (Kitty protocol), bracketed paste,
-        // bare Alt+key, and any other escape sequences.
-        const printable = data
-          .replace(/\x1b\[[0-9;:]*[A-Za-z~]/g, "")  // CSI sequences + CSI-u (note : for Kitty)
-          .replace(/\x1b\[20[01]~/g, "")             // bracketed paste
-          .replace(/\x1b[^[\x1b]/g, "")              // bare Alt+key
-          .replace(/\x1b$/g, "")                      // trailing bare ESC
-          .replace(/\[[0-9;:]*[A-Za-z~u]/g, "")      // orphaned CSI/CSI-u after ESC stripped
-          .replace(/[\x00-\x1f\x7f]/g, "");           // control chars + DEL
-        if (printable.length > 0) {
-          noteText += printable;
-          refresh();
-          return;
-        }
+        noteInput.handleInput(data);
+        refresh();
         return;
       }
 
@@ -145,10 +139,10 @@ export async function showInterviewUI(
         return;
       }
 
-      // ── Notes mode: i, Escape, ≤ (Option+,), ≥ (Option+.) ──
+      // ── Enter notes mode: i, Esc, ≤, ≥ ──
       if (data === "i" || data === "\u2264" || data === "\u2265" || matchesKey(data, Key.escape)) {
         noteMode = true;
-        noteText = notes.get(q().id) || "";
+        noteInput.setValue(notes.get(q().id) || "");
         refresh();
         return;
       }
@@ -243,7 +237,7 @@ export async function showInterviewUI(
       for (const ql of qLines) add(` ${ql}`);
       blank();
 
-      // ── Options ──
+      // Options
       const opts = question.options;
       for (let idx = 0; idx < opts.length; idx++) {
         const opt = opts[idx];
@@ -266,46 +260,32 @@ export async function showInterviewUI(
         }
       }
 
-      // ── Selection summary ──
+      // Selection summary
       if (sel.size > 0) {
         blank();
         add(`  ${theme.fg("success", `${sel.size} selected`)}`);
       }
 
-      // ── Notes section ──
+      // Notes section
       blank();
       const existingNote = notes.get(question.id);
       if (noteMode) {
-        // Active note input — filled background, no borders
-        const inputW = w - 4;
-        const text = noteText;
-        if (text.length === 0) {
-          // Placeholder + cursor on filled background
-          const fill = theme.bg("selectedBg", theme.fg("muted", " type a note..." + " ".repeat(Math.max(0, inputW - 16))));
-          add(`  ${fill}`);
-        } else {
-          // Wrap text on filled background
-          const noteLines = wrapTextWithAnsi(text, inputW - 2);
-          for (let nl = 0; nl < noteLines.length; nl++) {
-            const isLast = nl === noteLines.length - 1;
-            const lineText = noteLines[nl] + (isLast ? "_" : "");
-            const pad = " ".repeat(Math.max(0, inputW - lineText.length - 1));
-            add(`  ${theme.bg("selectedBg", " " + lineText + pad)}`);
-          }
+        // Render pi-tui Input component on filled background
+        const inputLines = noteInput.render(w - 4);
+        for (const il of inputLines) {
+          add(`  ${theme.bg("selectedBg", ` ${il}${" ".repeat(Math.max(0, w - 6))} `)}`);
         }
-        add(theme.fg("dim", `  Enter save . Esc save`));
+        add(theme.fg("dim", `  Enter save . Esc save . arrows/ctrl+a/e move`));
       } else if (existingNote) {
-        // Saved note — subtle filled display
-        const noteLines = wrapTextWithAnsi(existingNote, w - 6);
-        for (let nl = 0; nl < noteLines.length; nl++) {
-          add(`  ${theme.fg("muted", noteLines[nl])}`);
+        const noteLines = wrapTextWithAnsi(existingNote, w - 4);
+        for (const nl of noteLines) {
+          add(`  ${theme.fg("muted", nl)}`);
         }
       } else {
-        // No note — minimal hint
         add(theme.fg("dim", `  i to add a note`));
       }
 
-      // ── Hints ──
+      // Hints
       blank();
       if (!noteMode) {
         const h: string[] = [];

@@ -116,41 +116,52 @@ ${ctx.assistantText || "(empty)"}
 \`\`\`
 ${ctx.customInstruction.trim() ? `\nPreference: ${ctx.customInstruction.trim()}` : ""}
 
-\u2500\u2500 Question Design (from ask-deep) \u2500\u2500
 
-ARCHETYPE SELECTION \u2014 pick the best fit:
-- Direction: "What should we focus on next?" \u2014 task completed, multiple paths
-- Scope: "What\u2019s in scope?" \u2014 broad task, risk of scope creep
-- Recovery: "How should we handle the failures?" \u2014 errors occurred
-- Trade-off: "Which approach?" \u2014 valid alternatives with different costs
-- Delegation: "Should we use a skill/agent?" \u2014 a skill or role matches the work
-- Validation: "Does this look right?" \u2014 before irreversible action
+── Question Design ──
 
-SKIP WHEN (save the user\u2019s time):
-- Agent proposed a clear next step \u2014 user just needs to affirm
-- Simple Q&A with no follow-up needed
-- Session is wrapping up
-- The last user message was a direct instruction that was completed
+ARCHETYPE — match the situation:
 
-DEPTH CALIBRATION (from session context):
-- Early session (turns 1-2): broader questions, more options, help set direction
-- Mid session (turns 3-8): focused questions, specific to what just happened
-- Deep session (9+): minimal questions, only when genuinely ambiguous
-- If the user gives short answers or says "just do it": skip or 1 question max
+IF TurnStatus=success AND no UnresolvedQuestions AND trajectory shows steady progress:
+  → Direction archetype: "What next?" with concrete follow-up actions from the session arc
+  → Or SKIP if the assistant proposed a clear next step
 
-GROUNDING (critical \u2014 no generic options ever):
-- Every option MUST name a specific artifact: file path, function, test suite, error message
-- "src/auth/login.ts" not "the auth module". "3 failing vitest specs" not "the tests"
-- If UnresolvedQuestions exist \u2014 turn them into options verbatim
-- If a skill from the ecosystem matches the current work \u2014 include it as an option
-- If multiple projects listed \u2014 include cross-project option when relevant
+IF TurnStatus=success AND UnresolvedQuestions exist:
+  → Clarification archetype: turn each unresolved question into structured options
+  → This is the highest-value case — the agent asked, help the user answer
+
+IF TurnStatus=error:
+  → Recovery archetype: offer specific fix strategies based on the error signals
+  → Include "Show me the error details" as an option if context is ambiguous
+
+IF TurnStatus=aborted:
+  → Redirect archetype: offer to resume, restart with changes, or pivot entirely
+  → Reference what was in-progress from trajectory
+
+IF session is early (1-2 turns) AND trajectory is short:
+  → Scope archetype: help define what to build, reference project ecosystem
+  → Include skill suggestions if a domain skill matches
+
+IF multiple files touched across session AND task seems complete:
+  → Ship archetype: test, lint, commit, deploy options with specific file counts
+
+SKIP (return skipped=true) WHEN:
+- Assistant proposed a clear action and user likely just needs to say "yes"
+- Last exchange was simple Q&A with no branching paths
+- User's recent messages are short directives ("do it", "go ahead", "yes")
+- Session depth > 15 turns unless genuinely ambiguous
+
+GROUNDING (critical):
+- Every option MUST name a specific artifact: file path, function, test, error
+- Reference trajectory: "Resume the auth refactor from earlier" not "Continue"
+- Reference session files: "Run tests for src/auth/jwt.ts" not "Run tests"
+- If a skill matches — include "Use [skill-name]" as an option
 - BANNED: "Continue working", "Fix issues", "Improve code", "Look into it"
 
 OPTION QUALITY:
-- Start with action verb: Fix, Add, Run, Refactor, Deploy, Use, Test, Ship
-- Include specific target: the file, the function, the test, the endpoint
-- 3-5 options per question (cognitive load sweet spot from NN/g research)
-- First option = most likely next step
-- description: file path, error count, why this matters \u2014 max 60 chars
-- ${ctx.maxQuestions} questions max, ${ctx.maxOptions} options max per question, type always "multi"`;
+- Action verb first: Fix, Add, Run, Refactor, Deploy, Use, Test, Ship, Resume
+- Specific target: the file, function, test suite, endpoint, branch
+- 3-5 options per question
+- First option = most natural next step
+- description: why this matters, what it unblocks, file path — max 60 chars
+- ${ctx.maxQuestions} questions max, ${ctx.maxOptions} options max, type always "multi"`;
 }
